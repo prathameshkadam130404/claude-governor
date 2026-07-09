@@ -110,9 +110,42 @@ function writeState(sessionId, snapshot) {
   atomicWrite(stateFile(sessionId), JSON.stringify(snapshot));
 }
 
-function appendHistory(sample, cfg) {
+function readState(sessionId) {
+  return readJson(stateFile(sessionId), null);
+}
+
+// Delete per-session state/runtime files older than 14 days (housekeeping,
+// invoked opportunistically from the trim path).
+function cleanupOldSessions() {
+  const cutoff = Date.now() - 14 * 86_400_000;
+  for (const dir of [STATE_DIR, RUNTIME_DIR]) {
+    try {
+      for (const f of fs.readdirSync(dir)) {
+        const p = path.join(dir, f);
+        try {
+          if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+        } catch { /* best-effort */ }
+      }
+    } catch { /* best-effort */ }
+  }
+}
+
+function appendHistory(sample, cfg, opts) {
   ensureDirs();
+  const changed = !opts || opts.changed !== false;
   try {
+    // Throttle: the statusline can refresh several times per second, but
+    // quota moves slowly and arrives as an integer. Unthrottled appends both
+    // churn the disk and shrink the retained window (historyMax trims by
+    // line count) below the regression window. Record value CHANGES at most
+    // every 10s, plus a 60s heartbeat so flat stretches still register as
+    // evidence of zero burn.
+    let ageMs = Infinity;
+    try {
+      ageMs = Date.now() - fs.statSync(HISTORY_FILE).mtimeMs;
+    } catch { /* no file yet */ }
+    if (!(changed && ageMs > 10_000) && ageMs <= 60_000) return;
+
     fs.appendFileSync(HISTORY_FILE, JSON.stringify(sample) + '\n');
     // Occasional trim (1-in-20 writes) to bound file growth.
     if (Math.random() < 0.05) {
@@ -121,6 +154,7 @@ function appendHistory(sample, cfg) {
       if (lines.length > max) {
         atomicWrite(HISTORY_FILE, lines.slice(-max).join('\n') + '\n');
       }
+      cleanupOldSessions();
     }
   } catch {
     /* history is best-effort */
@@ -192,6 +226,17 @@ function burnRate(history, key, cfg) {
     const v = s[key];
     if (typeof v !== 'number' || s.t < cutoff) continue;
     pts.push({ t: s.t, v });
+  }
+  // Median-of-3 filter: a concurrent idle session can interleave one stale
+  // (lower) quota sample into a fresh rising series; unfiltered, that lone
+  // dip reads as a "reset" below and truncates the regression. A real reset
+  // persists across consecutive samples and survives the median.
+  if (pts.length >= 3) {
+    pts = pts.map((p, i) => {
+      if (i === 0 || i === pts.length - 1) return p;
+      const m = [pts[i - 1].v, p.v, pts[i + 1].v].sort((a, b) => a - b)[1];
+      return { t: p.t, v: m };
+    });
   }
   // Keep only samples after the most recent reset.
   let start = 0;
@@ -408,13 +453,18 @@ function decide(sessionId, assessed, cfg) {
 }
 
 // Read-only view of the debounced band for display surfaces (statusline).
-// Falls back to the raw band when no fresh runtime state exists.
-function peekBand(sessionId, rawBand) {
+// Falls back to the raw band when no fresh runtime state exists. Applies the
+// same fast-drop bypass as decide() so a genuine window reset is visible
+// immediately, not only after the injector's next run.
+function peekBand(sessionId, rawBand, fhPct) {
   try {
     const file = runtimeFile(sessionId);
     const st = fs.statSync(file);
     if (Date.now() - st.mtimeMs > 15 * 60_000) return rawBand;
     const rt = readJson(file, {});
+    if (typeof fhPct === 'number' && typeof rt.lastFh === 'number' && fhPct < rt.lastFh - 10) {
+      return rawBand;
+    }
     return typeof rt.band === 'number' ? Math.max(rt.band, rawBand) : rawBand;
   } catch {
     return rawBand;
@@ -455,6 +505,7 @@ module.exports = {
   readJson,
   loadConfig,
   writeState,
+  readState,
   appendHistory,
   readHistory,
   freshestState,

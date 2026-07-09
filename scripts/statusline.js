@@ -35,23 +35,30 @@ function main() {
       : null,
   };
 
+  // Change detection BEFORE overwriting the snapshot: history only needs
+  // samples when the quota values actually moved (plus a heartbeat, handled
+  // inside appendHistory).
+  const prev = c.readState(sessionId);
+  const prevRl = prev && prev.rate_limits ? prev.rate_limits : null;
+  const newFh = rl && rl.five_hour ? rl.five_hour.used_percentage : null;
+  const newSd = rl && rl.seven_day ? rl.seven_day.used_percentage : null;
+  const changed =
+    !prevRl ||
+    newFh !== (prevRl.five_hour ? prevRl.five_hour.used_percentage : null) ||
+    newSd !== (prevRl.seven_day ? prevRl.seven_day.used_percentage : null);
+
   c.writeState(sessionId, snapshot);
   c.appendHistory(
-    {
-      t: now,
-      sid: sessionId,
-      ctx: snapshot.ctx_pct,
-      fh: rl && rl.five_hour ? rl.five_hour.used_percentage : null,
-      sd: rl && rl.seven_day ? rl.seven_day.used_percentage : null,
-    },
-    cfg
+    { t: now, sid: sessionId, ctx: snapshot.ctx_pct, fh: newFh, sd: newSd },
+    cfg,
+    { changed }
   );
 
   // ---- render ----
   const view = c.freshestState(sessionId);
   const a = c.assess(view, cfg);
   // Show the same debounced band the model sees, not the raw noisy one.
-  const band = c.peekBand(sessionId, a.band);
+  const band = c.peekBand(sessionId, a.band, a.fh.pct);
 
   const RESET = '\x1b[0m';
   const DIM = '\x1b[2m';

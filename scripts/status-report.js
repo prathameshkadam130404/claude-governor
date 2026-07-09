@@ -19,7 +19,7 @@ if (!view.own && !view.quota) {
 }
 
 const a = c.assess(view, cfg);
-const band = c.peekBand(sessionId, a.band);
+const band = c.peekBand(sessionId, a.band, a.fh.pct);
 
 console.log('governor status');
 console.log('  band        : ' + c.BAND_NAME[band] + (a.drivers.length ? ' (driver: ' + a.drivers.join(', ') + ')' : '') + (band !== a.band ? ' [debounced; raw ' + c.BAND_NAME[a.band] + ']' : ''));

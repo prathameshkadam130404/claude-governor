@@ -85,6 +85,19 @@ const d2 = c.decide('debounce-test', mk(c.BAND.ECONOMY), dbCfg);
 check('de-escalation is debounced', d2.band === c.BAND.CHECKPOINT, 'got band ' + d2.band);
 const d3 = c.decide('debounce-test', mk(c.BAND.CHECKPOINT), dbCfg);
 check('escalation is immediate', d3.band === c.BAND.CHECKPOINT);
+// A lone stale sample from a concurrent session (72→50→73 shape) must not
+// trip reset detection; the median filter should recover the true slope.
+const dip = [
+  { t: T - 8 * 60_000, fh: 70 }, { t: T - 6 * 60_000, fh: 71 },
+  { t: T - 5 * 60_000, fh: 50 },
+  { t: T - 3 * 60_000, fh: 72 }, { t: T - 60_000, fh: 73 }, { t: T, fh: 74 },
+];
+const dipSlope = c.burnRate(dip, 'fh', cfg0);
+check('stale dip does not fake a reset', dipSlope !== null && dipSlope > 0.3 && dipSlope < 0.8, String(dipSlope));
+// peekBand: read-only debounced view with the fast-drop (reset) bypass.
+c.decide('peek-test', mk(c.BAND.CHECKPOINT), dbCfg); // stores band=CHECKPOINT, lastFh=80
+check('peek shows debounced band', c.peekBand('peek-test', c.BAND.CRUISE, 80) === c.BAND.CHECKPOINT);
+check('peek fast-drop bypass on reset', c.peekBand('peek-test', c.BAND.CRUISE, 20) === c.BAND.CRUISE);
 
 function statuslineInput(ctxPct, fhPct, sdPct) {
   return {

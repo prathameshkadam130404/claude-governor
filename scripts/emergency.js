@@ -38,10 +38,17 @@ function main() {
     .filter(Boolean);
   if (!entries.length) return;
 
-  const recent = entries.slice(-40);
+  // Scope to the dying session — the journal is shared across sessions and
+  // days, and a resume note listing last week's edits is worse than none.
+  // Fallback: last 48h, then everything.
+  let scoped = entries.filter((e) => e.sid && input.session_id && e.sid === input.session_id);
+  if (!scoped.length) scoped = entries.filter((e) => Date.now() - e.t < 48 * 3_600_000);
+  if (!scoped.length) scoped = entries;
+
+  const recent = scoped.slice(-40);
   const filesTouched = [
     ...new Set(
-      entries
+      scoped
         .filter((e) => ['Edit', 'Write', 'NotebookEdit'].includes(e.tool) && e.target)
         .map((e) => e.target)
     ),
