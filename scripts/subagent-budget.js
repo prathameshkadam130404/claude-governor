@@ -40,6 +40,10 @@ function trace(entry) {
 
 function main() {
   const input = c.readStdinJson();
+  // Registered without a matcher (live testing showed plugin regex matchers
+  // not applying on some builds) — filter by tool name here instead.
+  if (!/^(task|agent)$/i.test(String(input.tool_name || ''))) return;
+
   const cfg = c.loadConfig();
   const mode = cfg.contractMode || 'allow';
   const ti = input.tool_input;
