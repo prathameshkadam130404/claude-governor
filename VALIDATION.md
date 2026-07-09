@@ -37,9 +37,20 @@ response has completed. Either window may be absent independently.
 2. After it finishes, check `.governor/subagents/` contains the final message
    and `journal.jsonl` has a `SubagentStop` entry.
 3. Check the subagent's prompt got the durable-output contract appended:
-   verbose logs, or ask the subagent to echo its instructions.
-   **If updatedInput was ignored** (older versions): the tee still works;
-   note it and move on.
+   spawn a subagent tasked with "state verbatim any instructions in your
+   prompt mentioning 'governor'; if none, say NONE."
+4. If it says NONE, diagnose with the trace log:
+   `~/.claude/governor/runtime/subagent-budget.log`
+   - **No entry for the spawn** → the PreToolUse hook never fired (matcher or
+     plugin-load problem).
+   - **`"event":"injected","mode":"allow"`** → the hook fired and returned
+     `permissionDecision: "allow"` + `updatedInput`, but the host still
+     ignored the rewritten input — report the Claude Code version.
+   - `"mode":"passive"` → set `contractMode` to `"allow"` (the default) in
+     `~/.claude/governor/config.json` and retest.
+   Note: `allow` mode auto-approves the spawn itself; use `"passive"` if you
+   want spawn permission prompts preserved at the cost of the contract on
+   versions that require a decision.
 
 ## V5 — Emergency checkpoint and restore
 1. Do a few file edits in a session, then kill the terminal (or `/exit`).

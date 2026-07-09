@@ -93,10 +93,19 @@ Optional `~/.claude/governor/config.json` (defaults shown):
   },
   "dryMinutes": { "economy": 45, "windDown": 15, "checkpoint": 5 },
   "economyInjectEvery": 5,
+  "contractMode": "allow",
   "staleMinutes": 10,
   "archiveMax": 10
 }
 ```
+
+`contractMode` controls how the durable-output contract reaches subagent
+prompts: `"allow"` (default) returns `permissionDecision: "allow"` together
+with the rewritten input — required on Claude Code versions that ignore
+`updatedInput` without a decision, at the cost of auto-approving the spawn
+itself (spawns are typically auto-allowed anyway). `"passive"` preserves the
+normal permission flow but may be ignored; `"off"` disables the hook. Each
+invocation is traced to `~/.claude/governor/runtime/subagent-budget.log`.
 
 `dryMinutes` drives burn-rate escalation: if projected minutes-to-100% falls
 below these (and the reset won't arrive first), the band escalates regardless

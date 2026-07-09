@@ -129,9 +129,34 @@ const out8 = run('subagent-budget.js', {
   tool_input: { prompt: 'Research the flux capacitor', subagent_type: 'Explore' },
 });
 check('returns updatedInput', out8.includes('updatedInput'), out8);
+check('default mode carries allow decision', out8.includes('"permissionDecision":"allow"'), out8);
 check('appends contract', out8.includes('Durable-output contract'), out8);
 check('appends budget under pressure', out8.includes('Budget at spawn'), out8);
 check('original prompt preserved', out8.includes('Research the flux capacitor'), out8);
+
+console.log('8b. Contract passive/off modes');
+const cfgFile = path.join(FAKE_HOME, '.claude', 'governor', 'config.json');
+fs.writeFileSync(cfgFile, JSON.stringify({ contractMode: 'passive' }));
+const out8b = run('subagent-budget.js', {
+  session_id: SID,
+  cwd: FAKE_PROJ,
+  hook_event_name: 'PreToolUse',
+  tool_name: 'Task',
+  tool_input: { prompt: 'Research the flux capacitor' },
+});
+check('passive mode omits decision', out8b.includes('updatedInput') && !out8b.includes('permissionDecision'), out8b);
+fs.writeFileSync(cfgFile, JSON.stringify({ contractMode: 'off' }));
+const out8c = run('subagent-budget.js', {
+  session_id: SID,
+  cwd: FAKE_PROJ,
+  hook_event_name: 'PreToolUse',
+  tool_name: 'Task',
+  tool_input: { prompt: 'Research the flux capacitor' },
+});
+check('off mode is a no-op', out8c.trim() === '', out8c);
+fs.rmSync(cfgFile);
+const traceLog = path.join(FAKE_HOME, '.claude', 'governor', 'runtime', 'subagent-budget.log');
+check('trace log written', fs.existsSync(traceLog) && fs.readFileSync(traceLog, 'utf8').includes('"event":"injected"'));
 
 console.log('9. Emergency checkpoint (emergency.js)');
 run('emergency.js', {

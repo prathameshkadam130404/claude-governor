@@ -28,6 +28,8 @@ const DEFAULT_CONFIG = {
   dryMinutes: { windDown: 15, economy: 45, checkpoint: 5 },
   // Inject every Nth batch while in ECONOMY (WIND-DOWN+ injects every batch).
   economyInjectEvery: 5,
+  // Subagent contract delivery: "allow" | "passive" | "off" (see subagent-budget.js).
+  contractMode: 'allow',
   // Ignore state older than this many minutes for quota claims.
   staleMinutes: 10,
   // EWMA smoothing factor for burn rate.
