@@ -71,7 +71,7 @@ Record results here per Claude Code version:
 | Check | CC version | Result | Notes |
 |---|---|---|---|
 | UserPromptSubmit injection | 2026-07-09 build | ✅ works | model quoted line verbatim (V2) |
-| PostToolBatch injection | 2026-07-09 build | unconfirmed | injection observed via UserPromptSubmit; PostToolBatch not isolated yet |
+| PostToolBatch injection | 2026-07-09 build | ✅ works | counter hit 10 after a single multi-read prompt → 9 mid-turn firings |
 | Behavioral obedience (V3) | 2026-07-09 build | ✅ passed | declined 3-part task in WIND-DOWN, wrote RESUME.md |
 | SubagentStop tee (V4a) | 2026-07-09 build | ✅ works | outputs preserved incl. 8.7 KB Explore result |
 | Plugin hooks.json regex matcher | 2026-07-09 build | ❌ not applied | "Task\|Agent" matcher never fired; fixed by in-script filtering (41e849c) |
