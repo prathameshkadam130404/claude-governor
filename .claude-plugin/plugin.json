@@ -1,0 +1,8 @@
+{
+  "name": "governor",
+  "description": "Budget-aware agent loop for Claude Code: per-turn context + quota awareness injected into the model, graded economy policy, durable checkpoints, and clean resume after usage-limit interruptions.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Prathamesh Kadam"
+  }
+}
