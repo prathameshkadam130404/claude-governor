@@ -1,0 +1,13 @@
+{
+  "name": "claude-governor",
+  "owner": {
+    "name": "Prathamesh Kadam"
+  },
+  "plugins": [
+    {
+      "name": "governor",
+      "source": "./",
+      "description": "Budget-aware agent loop: per-turn context + 5h/7d quota awareness injected into the model, graded economy policy, durable checkpoints for subagent work, and clean resume after usage-limit interruptions."
+    }
+  ]
+}
