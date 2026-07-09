@@ -86,12 +86,12 @@ Requires Node.js (Claude Code runs on Node, so you have it). Quota data needs
 a Pro/Max subscription; API-key users get context-only mode.
 
 ```bash
-git clone https://github.com/YOURUSER/claude-governor
+git clone https://github.com/prathameshkadam130404/claude-governor
 node claude-governor/scripts/install-statusline.js   # one-time; backs up settings.json
 claude --plugin-dir ./claude-governor                # or install via /plugin
 ```
 
-Marketplace route: `/plugin marketplace add YOURUSER/claude-governor` then
+Marketplace route: `/plugin marketplace add prathameshkadam130404/claude-governor` then
 `/plugin install governor`.
 
 Verify: send one message in a session (quota appears after the first API
