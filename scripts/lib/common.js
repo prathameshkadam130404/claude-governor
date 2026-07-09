@@ -32,8 +32,13 @@ const DEFAULT_CONFIG = {
   contractMode: 'allow',
   // Ignore state older than this many minutes for quota claims.
   staleMinutes: 10,
-  // EWMA smoothing factor for burn rate.
-  ewmaAlpha: 0.35,
+  // Burn-rate regression: window and minimum evidence required for a slope.
+  burnWindowMinutes: 20,
+  burnMinSpanMinutes: 4,
+  burnMinSamples: 4,
+  // De-escalation debounce: a lower band must hold this long before the
+  // official band drops. Escalation is always immediate.
+  deescalateSeconds: 180,
   // Max history samples retained.
   historyMax: 1000,
   // Max transcript archives retained.
@@ -169,29 +174,46 @@ function freshestState(sessionId) {
 }
 
 // ---------------------------------------------------------------------------
-// Burn rate: EWMA of quota %/minute from history samples. A drop of more than
-// 5 points is treated as a window reset and clears the average.
+// Burn rate: least-squares slope (%/minute) over a recent window.
+// used_percentage arrives as an INTEGER, so pairwise deltas are dominated by
+// quantization (a 67→68 tick across 30s reads as 2%/min). Regression over
+// many samples recovers the true slope instead. A drop of more than 5 points
+// is a window reset; only samples after the last reset count.
 // ---------------------------------------------------------------------------
 
-function burnRate(history, key, alpha) {
-  let ewma = null;
-  let prev = null;
+function burnRate(history, key, cfg) {
+  const winMin = (cfg && cfg.burnWindowMinutes) || 20;
+  const minSpan = (cfg && cfg.burnMinSpanMinutes) || 4;
+  const minSamples = (cfg && cfg.burnMinSamples) || 4;
+  const cutoff = Date.now() - winMin * 60_000;
+
+  let pts = [];
   for (const s of history) {
     const v = s[key];
-    if (typeof v !== 'number') continue;
-    if (prev) {
-      const dtMin = (s.t - prev.t) / 60_000;
-      const dPct = v - prev.v;
-      if (dPct < -5) {
-        ewma = null; // window reset
-      } else if (dtMin >= 0.05 && dtMin <= 15 && dPct >= 0) {
-        const rate = dPct / dtMin;
-        ewma = ewma === null ? rate : alpha * rate + (1 - alpha) * ewma;
-      }
-    }
-    prev = { t: s.t, v };
+    if (typeof v !== 'number' || s.t < cutoff) continue;
+    pts.push({ t: s.t, v });
   }
-  return ewma; // %/minute, or null if unknown
+  // Keep only samples after the most recent reset.
+  let start = 0;
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].v < pts[i - 1].v - 5) start = i;
+  }
+  pts = pts.slice(start);
+
+  if (pts.length < minSamples) return null;
+  const spanMin = (pts[pts.length - 1].t - pts[0].t) / 60_000;
+  if (spanMin < minSpan) return null;
+
+  const t0 = pts[0].t;
+  let n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const p of pts) {
+    const x = (p.t - t0) / 60_000;
+    sx += x; sy += p.v; sxx += x * x; sxy += x * p.v;
+  }
+  const denom = n * sxx - sx * sx;
+  if (denom <= 0) return null;
+  const slope = (n * sxy - sx * sy) / denom;
+  return slope > 0.01 ? slope : null; // %/minute, or null if flat/unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -210,10 +232,13 @@ function quotaLevel(pct, th, burnPerMin, minutesToReset, dryCfg) {
   let lvl = levelFromPct(pct, th);
   if (typeof pct === 'number' && burnPerMin && burnPerMin > 0) {
     const dryIn = (100 - pct) / burnPerMin;
-    // Escalate only when we'd run dry BEFORE the reset rescues us.
+    // Escalate only when we'd run dry BEFORE the reset rescues us — and only
+    // one tier beyond what the raw level justifies (tiered guards): a burn
+    // spike at 72% must never scream CHECKPOINT; at that level there is
+    // always runway for an orderly WIND-DOWN instead.
     if (minutesToReset === null || dryIn < minutesToReset) {
-      if (dryIn <= dryCfg.checkpoint) lvl = Math.max(lvl, BAND.CHECKPOINT);
-      else if (dryIn <= dryCfg.windDown) lvl = Math.max(lvl, BAND.WIND_DOWN);
+      if (dryIn <= dryCfg.checkpoint && pct >= th.windDown) lvl = Math.max(lvl, BAND.CHECKPOINT);
+      else if (dryIn <= dryCfg.windDown && pct >= th.economy) lvl = Math.max(lvl, BAND.WIND_DOWN);
       else if (dryIn <= dryCfg.economy) lvl = Math.max(lvl, BAND.ECONOMY);
     }
   }
@@ -228,8 +253,8 @@ function minutesToReset(resetsAtEpochSec) {
 // Returns { band, drivers: [..], parts: {...} } for the freshest state.
 function assess(view, cfg) {
   const hist = readHistory(45);
-  const fhBurn = burnRate(hist, 'fh', cfg.ewmaAlpha);
-  const sdBurn = burnRate(hist, 'sd', cfg.ewmaAlpha);
+  const fhBurn = burnRate(hist, 'fh', cfg);
+  const sdBurn = burnRate(hist, 'sd', cfg);
 
   const stale =
     view.quotaAgeMs !== null && view.quotaAgeMs > cfg.staleMinutes * 60_000;
@@ -311,14 +336,19 @@ function budgetLine(a) {
 
   let line = '[governor] ' + (bits.length ? bits.join(' | ') : 'no budget data yet');
   if (a.band > 0) {
-    line +=
-      '\nband: ' + BAND_NAME[a.band] + ' (' + a.drivers.join(', ') + ') — ' + DIRECTIVES[a.band];
+    const drivers = a.drivers.length ? a.drivers.join(', ') : 'stabilizing';
+    line += '\nband: ' + BAND_NAME[a.band] + ' (' + drivers + ') — ' + DIRECTIVES[a.band];
   }
   return line;
 }
 
 // ---------------------------------------------------------------------------
-// Hysteresis (per session): decide whether the injector should speak.
+// Band debounce + speak cadence (per session).
+// Escalation is immediate (safety). De-escalation requires the lower band to
+// hold for deescalateSeconds — quantized quota data makes instantaneous band
+// math noisy, and CHECKPOINT→ECONOMY→WIND-DOWN whiplash both confuses the
+// model and burns injection tokens. A quota drop >10 points (window reset)
+// bypasses the debounce so recovery is instant when it's real.
 // ---------------------------------------------------------------------------
 
 function runtimeFile(sessionId) {
@@ -326,29 +356,69 @@ function runtimeFile(sessionId) {
   return path.join(RUNTIME_DIR, safe + '.json');
 }
 
-function shouldInject(sessionId, band, cfg) {
+// Returns { band, speak }. Mutates per-session runtime state — only the
+// injector should call this; display code uses peekBand().
+function decide(sessionId, assessed, cfg) {
   ensureDirs();
   const file = runtimeFile(sessionId);
-  const rt = readJson(file, { lastBand: -1, count: 0 });
-  rt.count += 1;
+  const rt = readJson(file, {});
+  const prevBand = typeof rt.band === 'number' ? rt.band : (typeof rt.lastBand === 'number' ? rt.lastBand : BAND.CRUISE);
+  const raw = assessed.band;
+  const now = Date.now();
+  const deMs = (cfg.deescalateSeconds ?? 180) * 1000;
+
+  const fhPct = assessed.fh.pct;
+  const fastDrop =
+    typeof fhPct === 'number' && typeof rt.lastFh === 'number' && fhPct < rt.lastFh - 10;
+
+  let band = prevBand;
+  if (raw >= prevBand || fastDrop || deMs === 0) {
+    band = raw;
+    rt.candidate = null;
+  } else if (rt.candidate === raw && now - (rt.candidateSince || 0) >= deMs) {
+    band = raw;
+    rt.candidate = null;
+  } else if (rt.candidate !== raw) {
+    rt.candidate = raw;
+    rt.candidateSince = now;
+  }
+
+  rt.count = (rt.count || 0) + 1;
   let speak = false;
-  if (band !== rt.lastBand) {
-    // Announce every band change, including recovery to CRUISE (but stay
-    // quiet if we were never above CRUISE in the first place).
-    speak = band > BAND.CRUISE || rt.lastBand > BAND.CRUISE;
+  if (band !== prevBand) {
+    // Announce every (stable) band change, including recovery to CRUISE —
+    // but stay quiet if we were never above CRUISE in the first place.
+    speak = band > BAND.CRUISE || prevBand > BAND.CRUISE;
     rt.count = 0;
   } else if (band >= BAND.WIND_DOWN) {
     speak = true;
   } else if (band === BAND.ECONOMY) {
     speak = rt.count % cfg.economyInjectEvery === 0;
   }
-  rt.lastBand = band;
+
+  rt.band = band;
+  if (typeof fhPct === 'number') rt.lastFh = fhPct;
+  delete rt.lastBand; // migrate away from the old field
   try {
     atomicWrite(file, JSON.stringify(rt));
   } catch {
     /* best-effort */
   }
-  return speak;
+  return { band, speak };
+}
+
+// Read-only view of the debounced band for display surfaces (statusline).
+// Falls back to the raw band when no fresh runtime state exists.
+function peekBand(sessionId, rawBand) {
+  try {
+    const file = runtimeFile(sessionId);
+    const st = fs.statSync(file);
+    if (Date.now() - st.mtimeMs > 15 * 60_000) return rawBand;
+    const rt = readJson(file, {});
+    return typeof rt.band === 'number' ? Math.max(rt.band, rawBand) : rawBand;
+  } catch {
+    return rawBand;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -389,11 +459,13 @@ module.exports = {
   readHistory,
   freshestState,
   burnRate,
+  quotaLevel,
   assess,
   budgetLine,
   fmtClock,
   fmtMins,
-  shouldInject,
+  decide,
+  peekBand,
   projectDir,
   hookOutput,
 };

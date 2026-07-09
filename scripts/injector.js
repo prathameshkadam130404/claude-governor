@@ -19,10 +19,12 @@ function main() {
   if (!view.own && !view.quota) return;
 
   const a = c.assess(view, cfg);
-  if (!c.shouldInject(sessionId, a.band, cfg)) return;
+  const { band, speak } = c.decide(sessionId, a, cfg);
+  if (!speak) return;
 
+  a.band = band; // debounced band is the official one the model sees
   let line = c.budgetLine(a);
-  if (a.band === c.BAND.CRUISE) {
+  if (band === c.BAND.CRUISE) {
     line = '[governor] budget pressure cleared — normal operation.';
   }
   c.hookOutput(eventName, line);

@@ -40,6 +40,52 @@ function check(name, cond, detail) {
 const SID = 'test-session-1';
 const nowSec = Math.floor(Date.now() / 1000);
 
+// Deterministic band transitions for hook-level tests: disable the
+// de-escalation debounce (tested separately in step 0 below).
+const govDir = path.join(FAKE_HOME, '.claude', 'governor');
+fs.mkdirSync(govDir, { recursive: true });
+fs.writeFileSync(path.join(govDir, 'config.json'), JSON.stringify({ deescalateSeconds: 0 }));
+
+console.log('0. Burn-rate regression & debounce (pure functions)');
+// Point the in-process require at the fake HOME too (GOV_HOME is resolved at
+// require time), so decide() writes runtime state into the sandbox.
+process.env.HOME = FAKE_HOME;
+process.env.USERPROFILE = FAKE_HOME;
+const c = require(path.join(ROOT, 'scripts', 'lib', 'common'));
+const cfg0 = { burnWindowMinutes: 20, burnMinSpanMinutes: 4, burnMinSamples: 4 };
+const T = Date.now();
+// A single quantization tick (67→68 across 30s) must NOT yield a slope.
+check(
+  'quantization spike yields no burn',
+  c.burnRate([{ t: T - 30_000, fh: 67 }, { t: T, fh: 68 }], 'fh', cfg0) === null
+);
+// A steady 1%/min staircase over 10 minutes must read ≈1%/min.
+const steady = [];
+for (let i = 0; i <= 10; i++) steady.push({ t: T - (10 - i) * 60_000, fh: 60 + i });
+const slope = c.burnRate(steady, 'fh', cfg0);
+check('steady staircase reads ~1%/min', slope !== null && Math.abs(slope - 1) < 0.05, String(slope));
+// Samples before a reset (drop >5) must be discarded.
+const withReset = [
+  { t: T - 8 * 60_000, fh: 90 }, { t: T - 7 * 60_000, fh: 95 },
+  { t: T - 6 * 60_000, fh: 3 }, { t: T - 4 * 60_000, fh: 3 },
+  { t: T - 2 * 60_000, fh: 4 }, { t: T, fh: 4 },
+];
+const postReset = c.burnRate(withReset, 'fh', cfg0);
+check('reset discards prior samples', postReset === null || postReset < 0.5, String(postReset));
+// Tiered guard: fast burn at 72% must cap at WIND-DOWN, never CHECKPOINT.
+const th0 = { economy: 70, windDown: 90, checkpoint: 97 };
+const dry0 = { economy: 45, windDown: 15, checkpoint: 5 };
+check('dry<5m at 72% caps at WIND-DOWN', c.quotaLevel(72, th0, 8, null, dry0) === c.BAND.WIND_DOWN);
+check('dry<5m at 92% may CHECKPOINT', c.quotaLevel(92, th0, 8, null, dry0) === c.BAND.CHECKPOINT);
+// Debounce: with deescalateSeconds=300, a raw drop must NOT lower the band.
+const dbCfg = { deescalateSeconds: 300, economyInjectEvery: 5 };
+const mk = (b) => ({ band: b, fh: { pct: 80 }, sd: { pct: 50 }, drivers: [] });
+c.decide('debounce-test', mk(c.BAND.CHECKPOINT), dbCfg);
+const d2 = c.decide('debounce-test', mk(c.BAND.ECONOMY), dbCfg);
+check('de-escalation is debounced', d2.band === c.BAND.CHECKPOINT, 'got band ' + d2.band);
+const d3 = c.decide('debounce-test', mk(c.BAND.CHECKPOINT), dbCfg);
+check('escalation is immediate', d3.band === c.BAND.CHECKPOINT);
+
 function statuslineInput(ctxPct, fhPct, sdPct) {
   return {
     session_id: SID,

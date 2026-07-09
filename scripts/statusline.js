@@ -50,13 +50,15 @@ function main() {
   // ---- render ----
   const view = c.freshestState(sessionId);
   const a = c.assess(view, cfg);
+  // Show the same debounced band the model sees, not the raw noisy one.
+  const band = c.peekBand(sessionId, a.band);
 
   const RESET = '\x1b[0m';
   const DIM = '\x1b[2m';
-  const bandColor = ['\x1b[32m', '\x1b[33m', '\x1b[38;5;208m', '\x1b[31m'][a.band];
+  const bandColor = ['\x1b[32m', '\x1b[33m', '\x1b[38;5;208m', '\x1b[31m'][band];
 
   const parts = [];
-  parts.push(bandColor + '⛽ ' + c.BAND_NAME[a.band] + RESET);
+  parts.push(bandColor + '⛽ ' + c.BAND_NAME[band] + RESET);
   if (typeof a.ctxPct === 'number') parts.push('ctx ' + Math.round(a.ctxPct) + '%');
   if (typeof a.fh.pct === 'number') {
     parts.push('5h ' + Math.round(a.fh.pct) + '%' + DIM + ' ↺' + c.fmtMins(a.fh.reset) + RESET);

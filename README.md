@@ -111,14 +111,27 @@ Optional `~/.claude/governor/config.json` (defaults shown):
   "dryMinutes": { "economy": 45, "windDown": 15, "checkpoint": 5 },
   "economyInjectEvery": 5,
   "contractMode": "allow",
+  "deescalateSeconds": 180,
+  "burnWindowMinutes": 20,
+  "burnMinSpanMinutes": 4,
+  "burnMinSamples": 4,
   "staleMinutes": 10,
   "archiveMax": 10
 }
 ```
 
 - `dryMinutes` — burn-rate escalation: if projected minutes-to-100% falls
-  below these (and the reset won't arrive first), the band escalates
-  regardless of the raw percentage.
+  below these (and the reset won't arrive first), the band escalates beyond
+  what the raw percentage says — **by at most one tier**: projection can push
+  into CHECKPOINT only when usage is already past the wind-down threshold,
+  and into WIND-DOWN only past the economy threshold. A transient burn spike
+  at 72% can never scream CHECKPOINT.
+- `deescalateSeconds` — bands escalate instantly but drop only after the
+  lower band holds this long (a real window reset bypasses the debounce).
+  Quota percentages arrive as integers; without smoothing and debounce the
+  band flaps. Burn rate itself is a least-squares slope over
+  `burnWindowMinutes` of samples (requiring `burnMinSamples` spanning
+  `burnMinSpanMinutes`), not a jumpy sample-to-sample delta.
 - `contractMode` — how the durable-output contract reaches subagent prompts.
   `"allow"` (default) returns `permissionDecision: "allow"` with the rewritten
   input — required on builds that ignore `updatedInput` without a decision;
