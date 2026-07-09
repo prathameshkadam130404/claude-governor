@@ -70,7 +70,15 @@ Record results here per Claude Code version:
 
 | Check | CC version | Result | Notes |
 |---|---|---|---|
-| PostToolBatch injection | | | |
-| updatedInput w/o decision | | | |
-| Hooks inside subagents | | | |
-| Statusline cadence in -p | | | |
+| UserPromptSubmit injection | 2026-07-09 build | ✅ works | model quoted line verbatim (V2) |
+| PostToolBatch injection | 2026-07-09 build | unconfirmed | injection observed via UserPromptSubmit; PostToolBatch not isolated yet |
+| Behavioral obedience (V3) | 2026-07-09 build | ✅ passed | declined 3-part task in WIND-DOWN, wrote RESUME.md |
+| SubagentStop tee (V4a) | 2026-07-09 build | ✅ works | outputs preserved incl. 8.7 KB Explore result |
+| Plugin hooks.json regex matcher | 2026-07-09 build | ❌ not applied | "Task\|Agent" matcher never fired; fixed by in-script filtering (41e849c) |
+| updatedInput w/o decision | 2026-07-09 build | ❌ ignored | passive mode is a no-op |
+| updatedInput + allow (V4b) | 2026-07-09 build | ✅ works | subagent echoed appended preamble; spawn tool is named "Agent" |
+| Burn-rate escalation | 2026-07-09 build | ✅ live | ECONOMY at 67% (below 70%) via dry-in-30m projection |
+| Emergency RESUME.auto.md (V5a) | 2026-07-09 build | ✅ works | written on session end, listed edited files |
+| SessionStart restore (V5b) | 2026-07-09 build | ✅ works | subagent-output list injected at start |
+| Hooks inside subagents | | untested | probe 2 in the guide |
+| Statusline cadence in -p | | untested | probe 1 in the guide |
