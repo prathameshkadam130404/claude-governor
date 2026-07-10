@@ -11,6 +11,7 @@ const GOV_HOME = path.join(os.homedir(), '.claude', 'governor');
 const STATE_DIR = path.join(GOV_HOME, 'state');
 const RUNTIME_DIR = path.join(GOV_HOME, 'runtime');
 const ARCHIVE_DIR = path.join(GOV_HOME, 'archives');
+const BIN_DIR = path.join(GOV_HOME, 'bin');
 const HISTORY_FILE = path.join(GOV_HOME, 'history.jsonl');
 const CONFIG_FILE = path.join(GOV_HOME, 'config.json');
 
@@ -452,6 +453,19 @@ function decide(sessionId, assessed, cfg) {
   return { band, speak };
 }
 
+// True if the injector has touched this session's runtime state within
+// maxAgeMs. Display surfaces use this as a liveness probe: the injector
+// writes runtime on every prompt/tool batch, so a stale/missing file while
+// the session is active means the plugin hooks aren't loaded at all (e.g.
+// launched with --plugin-dir once, then resumed without it).
+function runtimeFresh(sessionId, maxAgeMs) {
+  try {
+    return Date.now() - fs.statSync(runtimeFile(sessionId)).mtimeMs <= maxAgeMs;
+  } catch {
+    return false;
+  }
+}
+
 // Read-only view of the debounced band for display surfaces (statusline).
 // Falls back to the raw band when no fresh runtime state exists. Applies the
 // same fast-drop bypass as decide() so a genuine window reset is visible
@@ -474,6 +488,38 @@ function peekBand(sessionId, rawBand, fhPct) {
 // ---------------------------------------------------------------------------
 // Project-local durability dir
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Collector bin install: marketplace-installed plugins live in a cache whose
+// path changes on update, so settings.json's statusLine must never point into
+// the plugin. Instead the collector is copied to the stable BIN_DIR and the
+// SessionStart hook refreshes the copy whenever the plugin version changes.
+// ---------------------------------------------------------------------------
+
+function pluginVersion() {
+  const manifest = readJson(
+    path.resolve(__dirname, '..', '..', '.claude-plugin', 'plugin.json'),
+    {}
+  );
+  return manifest.version || '0';
+}
+
+// Copy statusline.js + this file to BIN_DIR; returns the stable collector path.
+function installCollectorBin() {
+  const scriptsDir = path.resolve(__dirname, '..');
+  fs.mkdirSync(path.join(BIN_DIR, 'lib'), { recursive: true });
+  fs.copyFileSync(path.join(scriptsDir, 'statusline.js'), path.join(BIN_DIR, 'statusline.js'));
+  fs.copyFileSync(path.join(scriptsDir, 'lib', 'common.js'), path.join(BIN_DIR, 'lib', 'common.js'));
+  fs.writeFileSync(path.join(BIN_DIR, 'VERSION'), pluginVersion());
+  return path.join(BIN_DIR, 'statusline.js');
+}
+
+// True when the configured statusline command is governor's collector
+// (either the stable bin copy or a pre-0.2 direct path into the repo).
+function isGovernorStatusline(command) {
+  const cmd = String(command || '');
+  return /governor/i.test(cmd) && /statusline\.js/.test(cmd);
+}
 
 function projectDir(cwd) {
   const d = path.join(cwd || process.cwd(), '.governor');
@@ -517,6 +563,11 @@ module.exports = {
   fmtMins,
   decide,
   peekBand,
+  runtimeFresh,
+  pluginVersion,
+  installCollectorBin,
+  isGovernorStatusline,
+  BIN_DIR,
   projectDir,
   hookOutput,
 };

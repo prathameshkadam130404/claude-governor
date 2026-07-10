@@ -85,21 +85,65 @@ and their final messages are preserved to disk regardless.
 Requires Node.js (Claude Code runs on Node, so you have it). Quota data needs
 a Pro/Max subscription; API-key users get context-only mode.
 
+**1. Install the plugin** (persists across sessions and `--resume`):
+
 ```bash
-git clone https://github.com/prathameshkadam130404/claude-governor
-node claude-governor/scripts/install-statusline.js   # one-time; backs up settings.json
-claude --plugin-dir ./claude-governor                # or install via /plugin
+claude plugin marketplace add prathameshkadam130404/claude-governor
+claude plugin install governor@claude-governor
 ```
 
-Marketplace route: `/plugin marketplace add prathameshkadam130404/claude-governor` then
-`/plugin install governor`.
+Or in-session: `/plugin marketplace add prathameshkadam130404/claude-governor`,
+`/plugin install governor@claude-governor`, then `/reload-plugins`.
 
-Verify: send one message in a session (quota appears after the first API
-response), then run `/governor:status`.
+**2. Install the collector** — plugins can't ship a main statusline, so this
+one step writes it into your `~/.claude/settings.json` (backup first). From
+inside Claude Code:
+
+```
+/governor:install
+```
+
+If you skip this, governor tells you at the next session start — the plugin
+detects a missing collector and nudges.
+
+Enabling the plugin prompts for the band thresholds and subagent contract
+mode (defaults are sensible; just accept them). Verify: send one message in a
+session (quota appears after the first API response), then run
+`/governor:status`.
+
+The collector is copied to `~/.claude/governor/bin/` rather than referenced
+inside the plugin's cache directory (which moves on every update); the plugin
+refreshes that copy automatically when its version changes.
+
+### Two failure alarms, both directions
+
+- Plugin loaded but collector missing → SessionStart injects a setup nudge.
+- Collector running but hooks dead (e.g. a session launched without the
+  plugin) → the statusline shows **`⚠ hooks off?`** whenever pressure is at
+  ECONOMY+ and the injector hasn't run in 10 minutes. The gauge being green
+  while the model is blind was the failure mode that motivated this: never
+  trust a display alone.
+
+### Development install
+
+```bash
+git clone https://github.com/prathameshkadam130404/claude-governor
+node claude-governor/scripts/install-statusline.js
+claude --plugin-dir ./claude-governor
+```
+
+⚠️ `--plugin-dir` is per-launch: quit and run `claude --resume` without the
+flag and every hook silently disappears (the statusline keeps working, which
+makes it easy to miss — that's exactly what the `⚠ hooks off?` marker
+catches). For daily use, install via the marketplace.
 
 ## Configuration
 
-Optional `~/.claude/governor/config.json` (defaults shown):
+The plugin's enable-time prompts (thresholds, contract mode) cover the common
+knobs and are mirrored into `~/.claude/governor/config.json` at session start
+so the collector — which runs outside the plugin — sees the same values.
+Everything else via optional `~/.claude/governor/config.json` (defaults
+shown; plugin-prompted keys win over manual edits of the same keys):
 
 ```json
 {
@@ -144,6 +188,7 @@ Optional `~/.claude/governor/config.json` (defaults shown):
 
 | Path | What |
 |---|---|
+| `~/.claude/governor/bin/` | stable collector copy `settings.json` points at |
 | `~/.claude/governor/state/` | latest budget snapshot per session |
 | `~/.claude/governor/history.jsonl` | burn-rate samples (auto-trimmed) |
 | `~/.claude/governor/archives/` | pre-compaction transcript copies |
@@ -189,7 +234,7 @@ deliberately as a team checkpoint.
 ## Development
 
 ```bash
-node test/smoke.js   # 36 assertions, simulated hook inputs, throwaway HOME
+node test/smoke.js   # simulated hook inputs, throwaway HOME
 ```
 
 Everything is plain Node, one script per hook, `scripts/lib/common.js` for

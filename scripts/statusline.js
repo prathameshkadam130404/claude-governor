@@ -39,6 +39,9 @@ function main() {
   // samples when the quota values actually moved (plus a heartbeat, handled
   // inside appendHistory).
   const prev = c.readState(sessionId);
+  // First-seen time survives snapshot overwrites; the hooks-off probe below
+  // needs to know the session isn't brand new before it accuses anyone.
+  snapshot.t0 = (prev && prev.t0) || now;
   const prevRl = prev && prev.rate_limits ? prev.rate_limits : null;
   const newFh = rl && rl.five_hour ? rl.five_hour.used_percentage : null;
   const newSd = rl && rl.seven_day ? rl.seven_day.used_percentage : null;
@@ -74,6 +77,19 @@ function main() {
     parts.push('7d ' + Math.round(a.sd.pct) + '%' + DIM + ' ↺' + c.fmtMins(a.sd.reset) + RESET);
   }
   if (snapshot.model) parts.push(DIM + snapshot.model + RESET);
+
+  // Liveness cross-check: under pressure the injector writes runtime state
+  // on every prompt and tool batch. A session that's several minutes old
+  // with no recent injector activity means the plugin hooks aren't loaded
+  // (statusline installs globally; hooks only exist where the plugin is
+  // actually enabled) — the gauge looks healthy but the model is blind.
+  if (
+    band >= c.BAND.ECONOMY &&
+    now - snapshot.t0 > 5 * 60_000 &&
+    !c.runtimeFresh(sessionId, 10 * 60_000)
+  ) {
+    parts.push('\x1b[31m⚠ hooks off?\x1b[0m');
+  }
 
   process.stdout.write(parts.join('  ·  '));
 }

@@ -18,10 +18,10 @@ fs.mkdirSync(FAKE_PROJ, { recursive: true });
 let passed = 0;
 let failed = 0;
 
-function run(script, stdinObj) {
+function run(script, stdinObj, extraEnv) {
   return execFileSync('node', [path.join(ROOT, 'scripts', script)], {
     input: JSON.stringify(stdinObj),
-    env: { ...process.env, HOME: FAKE_HOME, USERPROFILE: FAKE_HOME },
+    env: { ...process.env, HOME: FAKE_HOME, USERPROFILE: FAKE_HOME, ...(extraEnv || {}) },
     cwd: FAKE_PROJ,
     encoding: 'utf8',
   });
@@ -240,6 +240,7 @@ const out10 = run('session-restore.js', {
   source: 'resume',
 });
 check('injects resume note', out10.includes('additionalContext') && out10.includes('RESUME.auto.md'), out10.slice(0, 200));
+check('nudges when collector not installed', out10.includes('governor:install'), out10.slice(0, 200));
 
 console.log('11. Ignored StopFailure types');
 fs.rmSync(autoResume);
@@ -275,6 +276,120 @@ for (const s of [
   }
   check(s + ' survives garbage stdin', ok);
 }
+
+console.log('13. Collector installer (install-statusline.js)');
+const settingsFile = path.join(FAKE_HOME, '.claude', 'settings.json');
+const binDir = path.join(FAKE_HOME, '.claude', 'governor', 'bin');
+run('install-statusline.js', {});
+const settings13 = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+check(
+  'settings points at stable bin copy',
+  settings13.statusLine && settings13.statusLine.command.includes(path.join('governor', 'bin', 'statusline.js')),
+  JSON.stringify(settings13.statusLine)
+);
+check(
+  'bin copy complete',
+  fs.existsSync(path.join(binDir, 'statusline.js')) && fs.existsSync(path.join(binDir, 'lib', 'common.js'))
+);
+const pluginVer = JSON.parse(
+  fs.readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')
+).version;
+check('VERSION matches plugin manifest', fs.readFileSync(path.join(binDir, 'VERSION'), 'utf8').trim() === pluginVer);
+let reinstallOk = true;
+try {
+  run('install-statusline.js', {});
+} catch {
+  reinstallOk = false;
+}
+check('reinstall over own statusline needs no --force', reinstallOk);
+// A foreign statusline must be refused without --force and left untouched.
+fs.writeFileSync(
+  settingsFile,
+  JSON.stringify({ statusLine: { type: 'command', command: 'my-custom-bar.sh' } })
+);
+let refused = false;
+try {
+  run('install-statusline.js', {});
+} catch {
+  refused = true;
+}
+check('refuses foreign statusline without --force', refused);
+check(
+  'foreign statusline untouched after refusal',
+  JSON.parse(fs.readFileSync(settingsFile, 'utf8')).statusLine.command === 'my-custom-bar.sh'
+);
+execFileSync('node', [path.join(ROOT, 'scripts', 'install-statusline.js'), '--force'], {
+  env: { ...process.env, HOME: FAKE_HOME, USERPROFILE: FAKE_HOME },
+  cwd: FAKE_PROJ,
+  encoding: 'utf8',
+});
+check(
+  '--force replaces foreign statusline',
+  JSON.parse(fs.readFileSync(settingsFile, 'utf8')).statusLine.command.includes('statusline.js')
+);
+
+console.log('14. SessionStart self-maintenance');
+const out14 = run('session-restore.js', {
+  session_id: 'new-session-3',
+  cwd: FAKE_PROJ,
+  hook_event_name: 'SessionStart',
+  source: 'startup',
+});
+check('no install nudge once collector installed', !out14.includes('governor:install'), out14.slice(0, 200));
+// Plugin update self-heal: stale VERSION in the bin copy gets refreshed.
+fs.writeFileSync(path.join(binDir, 'VERSION'), '0.0.0-stale');
+run('session-restore.js', { session_id: 'new-session-3', cwd: FAKE_PROJ, hook_event_name: 'SessionStart', source: 'startup' });
+check('stale bin copy refreshed on session start', fs.readFileSync(path.join(binDir, 'VERSION'), 'utf8').trim() === pluginVer);
+// userConfig env options are mirrored into config.json for the collector.
+run(
+  'session-restore.js',
+  { session_id: 'new-session-3', cwd: FAKE_PROJ, hook_event_name: 'SessionStart', source: 'startup' },
+  {
+    CLAUDE_PLUGIN_OPTION_contract_mode: 'passive',
+    CLAUDE_PLUGIN_OPTION_economy_pct: '60',
+    CLAUDE_PLUGIN_OPTION_winddown_pct: '85',
+    CLAUDE_PLUGIN_OPTION_checkpoint_pct: '95',
+  }
+);
+const cfg14 = JSON.parse(fs.readFileSync(path.join(govDir, 'config.json'), 'utf8'));
+check('contract_mode option mirrored', cfg14.contractMode === 'passive', JSON.stringify(cfg14));
+check(
+  'threshold options mirrored to context+5h',
+  cfg14.thresholds &&
+    cfg14.thresholds.context.economy === 60 &&
+    cfg14.thresholds.five_hour.windDown === 85 &&
+    cfg14.thresholds.five_hour.checkpoint === 95,
+  JSON.stringify(cfg14.thresholds)
+);
+// Inverted thresholds must be rejected, not written.
+run(
+  'session-restore.js',
+  { session_id: 'new-session-3', cwd: FAKE_PROJ, hook_event_name: 'SessionStart', source: 'startup' },
+  {
+    CLAUDE_PLUGIN_OPTION_economy_pct: '90',
+    CLAUDE_PLUGIN_OPTION_winddown_pct: '70',
+    CLAUDE_PLUGIN_OPTION_checkpoint_pct: '95',
+  }
+);
+const cfg14b = JSON.parse(fs.readFileSync(path.join(govDir, 'config.json'), 'utf8'));
+check('inverted thresholds rejected', cfg14b.thresholds.context.economy === 60, JSON.stringify(cfg14b.thresholds));
+fs.rmSync(path.join(govDir, 'config.json'));
+
+console.log('15. Hooks-off marker (statusline.js)');
+const SID3 = 'hooks-off-3';
+run('statusline.js', { ...statuslineInput(30, 91, 61), session_id: SID3 });
+// Backdate the session's first-seen time past the 5-minute grace window;
+// with no runtime file for this session the marker must appear.
+const sf3 = path.join(FAKE_HOME, '.claude', 'governor', 'state', SID3 + '.json');
+const snap3 = JSON.parse(fs.readFileSync(sf3, 'utf8'));
+snap3.t0 = Date.now() - 6 * 60_000;
+fs.writeFileSync(sf3, JSON.stringify(snap3));
+const out15a = run('statusline.js', { ...statuslineInput(30, 91, 61), session_id: SID3 });
+check('marker shown when injector never ran', out15a.includes('hooks off?'), out15a);
+// Once the injector runs (runtime file fresh), the marker must clear.
+run('injector.js', { session_id: SID3, hook_event_name: 'PostToolBatch', cwd: FAKE_PROJ });
+const out15b = run('statusline.js', { ...statuslineInput(30, 91, 61), session_id: SID3 });
+check('marker clears once injector is live', !out15b.includes('hooks off?'), out15b);
 
 console.log('');
 console.log(`${passed} passed, ${failed} failed`);

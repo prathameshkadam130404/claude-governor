@@ -1,16 +1,22 @@
 'use strict';
 // governor/install-statusline.js — one-time setup.
-// Points ~/.claude/settings.json's statusLine at the Collector. Refuses to
-// clobber an existing statusline unless --force (a backup is written either
-// way). Run:  node scripts/install-statusline.js [--force]
+// Copies the Collector (statusline.js + lib/common.js) to the stable
+// ~/.claude/governor/bin/ and points ~/.claude/settings.json's statusLine at
+// that copy. The stable copy matters: marketplace-installed plugins live in
+// a cache directory whose path changes on update, so pointing settings at
+// the plugin itself would break the statusline on every upgrade. The
+// SessionStart hook refreshes the copy when the plugin version changes.
+//
+// Refuses to clobber a non-governor statusline unless --force (a timestamped
+// backup of settings.json is written either way). Run:
+//   node scripts/install-statusline.js [--force]
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const c = require('./lib/common');
 
 const settingsFile = path.join(os.homedir(), '.claude', 'settings.json');
-const collector = path.resolve(__dirname, 'statusline.js');
-const command = `node "${collector}"`;
 
 let settings = {};
 if (fs.existsSync(settingsFile)) {
@@ -24,7 +30,8 @@ if (fs.existsSync(settingsFile)) {
 }
 
 const existing = settings.statusLine;
-if (existing && existing.command !== command && !process.argv.includes('--force')) {
+const ours = existing && c.isGovernorStatusline(existing.command);
+if (existing && !ours && !process.argv.includes('--force')) {
   console.error('A statusline is already configured:');
   console.error('  ' + JSON.stringify(existing));
   console.error('');
@@ -35,6 +42,9 @@ if (existing && existing.command !== command && !process.argv.includes('--force'
   process.exit(1);
 }
 
+const collector = c.installCollectorBin();
+const command = `node "${collector}"`;
+
 if (fs.existsSync(settingsFile)) {
   const backup = settingsFile + '.governor-backup-' + Date.now();
   fs.copyFileSync(settingsFile, backup);
@@ -44,6 +54,7 @@ if (fs.existsSync(settingsFile)) {
 settings.statusLine = { type: 'command', command };
 fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
 fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2) + '\n');
+console.log('Collector copied to: ' + collector);
 console.log('statusLine now points at the governor collector:');
 console.log('  ' + command);
 console.log('');

@@ -1,8 +1,43 @@
 {
   "name": "governor",
   "description": "Budget-aware agent loop for Claude Code: per-turn context + quota awareness injected into the model, graded economy policy, durable checkpoints, and clean resume after usage-limit interruptions.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Prathamesh Kadam"
+  },
+  "repository": "https://github.com/prathameshkadam130404/claude-governor",
+  "license": "MIT",
+  "keywords": ["budget", "quota", "rate-limit", "usage", "context-window", "checkpoint", "resume", "statusline"],
+  "userConfig": {
+    "contract_mode": {
+      "type": "string",
+      "title": "Subagent contract mode",
+      "description": "How the durable-output contract reaches subagent prompts: allow (rewrite + auto-approve spawn, most compatible), passive (rewrite only), or off",
+      "default": "allow"
+    },
+    "economy_pct": {
+      "type": "number",
+      "title": "ECONOMY threshold (%)",
+      "description": "Context / 5-hour usage percentage where the model is told to economize",
+      "default": 70,
+      "min": 1,
+      "max": 100
+    },
+    "winddown_pct": {
+      "type": "number",
+      "title": "WIND-DOWN threshold (%)",
+      "description": "Usage percentage where the model must finish the current unit and start nothing new",
+      "default": 90,
+      "min": 1,
+      "max": 100
+    },
+    "checkpoint_pct": {
+      "type": "number",
+      "title": "CHECKPOINT threshold (%)",
+      "description": "Usage percentage where the model must write .governor/RESUME.md and end the turn cleanly",
+      "default": 97,
+      "min": 1,
+      "max": 100
+    }
   }
 }
