@@ -8,7 +8,6 @@
 // plugin update, and mirrors userConfig options into config.json.
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const c = require('./lib/common');
 
@@ -26,20 +25,50 @@ function fresh(file) {
 
 // If the collector statusline isn't installed, governor is display-and-hook
 // dead even though the plugin loaded fine — say so once per session start.
-// If it IS ours and the plugin was updated, refresh the stable bin copy.
+// If it IS ours: refresh the stable bin copy when its content drifted from
+// the plugin source, and repair a dead entry (target script gone, e.g. a
+// plugin-cache path after an update moved the cache).
 function maintainCollector(parts, source) {
-  const settings = c.readJson(path.join(os.homedir(), '.claude', 'settings.json'), {});
+  const settings = c.readJson(c.SETTINGS_FILE, {});
   const cmd = settings.statusLine && settings.statusLine.command;
-  if (c.isGovernorStatusline(cmd)) {
-    try {
-      const ver = fs.readFileSync(path.join(c.BIN_DIR, 'VERSION'), 'utf8').trim();
-      if (ver !== c.pluginVersion()) c.installCollectorBin();
-    } catch {
-      // No bin copy: a pre-0.2 direct-path install. It works; leave it.
-      // /governor:install migrates it to the stable copy.
+  const ownership = c.statuslineOwnership(cmd);
+
+  if (ownership === 'ours') {
+    const p = c.statuslineCommandPath(cmd);
+    const onBin =
+      p && path.resolve(p).toLowerCase() === path.resolve(path.join(c.BIN_DIR, 'statusline.js')).toLowerCase();
+    // A working legacy direct-path install is left alone; /governor:install
+    // migrates it to the stable copy.
+    if (onBin && c.collectorBinStale()) {
+      try {
+        c.installCollectorBin();
+      } catch (e) {
+        c.traceLog('collector-refresh-failed', { error: String(e && e.message) });
+      }
     }
     return;
   }
+
+  if (ownership === 'dead') {
+    try {
+      const collector = c.installCollectorBin();
+      try {
+        fs.copyFileSync(c.SETTINGS_FILE, c.SETTINGS_FILE + '.governor-backup-' + Date.now());
+      } catch { /* no settings file to back up */ }
+      settings.statusLine = { type: 'command', command: `node "${collector}"` };
+      c.atomicWrite(c.SETTINGS_FILE, JSON.stringify(settings, null, 2) + '\n');
+      c.traceLog('collector-repaired', { from: String(cmd) });
+      parts.push(
+        '[governor] Repaired the collector statusline: its previous script path no longer ' +
+          'existed (a plugin update moved it). It now runs from the stable copy in ' +
+          '~/.claude/governor/bin — no action needed.'
+      );
+    } catch (e) {
+      c.traceLog('collector-repair-failed', { error: String(e && e.message) });
+    }
+    return;
+  }
+
   if (source === 'compact') return; // don't nag mid-session
   parts.push(
     '[governor] Setup incomplete: the plugin is loaded but its collector statusline is not ' +
@@ -71,6 +100,15 @@ function syncPluginOptions() {
     for (const k of ['context', 'five_hour']) {
       next.thresholds[k] = { ...(next.thresholds[k] || {}), economy: eco, windDown: wd, checkpoint: cp };
     }
+  } else if (
+    ['economy_pct', 'winddown_pct', 'checkpoint_pct'].some(
+      (k) => process.env['CLAUDE_PLUGIN_OPTION_' + k]
+    )
+  ) {
+    // Values were supplied but are partial, out of range, or misordered
+    // (the enable prompt validates per-field bounds, not ordering) — the
+    // whole triple is skipped, and that must not be silent.
+    c.traceLog('options-thresholds-rejected', { economy: eco, windDown: wd, checkpoint: cp });
   }
   if (JSON.stringify(next) !== JSON.stringify(cur)) {
     c.ensureDirs();

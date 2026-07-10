@@ -12,11 +12,10 @@
 //   node scripts/install-statusline.js [--force]
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const c = require('./lib/common');
 
-const settingsFile = path.join(os.homedir(), '.claude', 'settings.json');
+const settingsFile = c.SETTINGS_FILE;
 
 let settings = {};
 if (fs.existsSync(settingsFile)) {
@@ -30,8 +29,10 @@ if (fs.existsSync(settingsFile)) {
 }
 
 const existing = settings.statusLine;
-const ours = existing && c.isGovernorStatusline(existing.command);
-if (existing && !ours && !process.argv.includes('--force')) {
+// 'ours' (live governor collector) and 'dead' (governor's own entry whose
+// target moved) may be replaced freely; 'foreign' needs explicit consent.
+const ownership = existing ? c.statuslineOwnership(existing.command) : 'none';
+if (ownership === 'foreign' && !process.argv.includes('--force')) {
   console.error('A statusline is already configured:');
   console.error('  ' + JSON.stringify(existing));
   console.error('');
@@ -42,7 +43,15 @@ if (existing && !ours && !process.argv.includes('--force')) {
   process.exit(1);
 }
 
-const collector = c.installCollectorBin();
+let collector;
+try {
+  collector = c.installCollectorBin();
+} catch (e) {
+  console.error(`Could not copy the collector to ${c.BIN_DIR}: ${e.message}`);
+  console.error('Check permissions (or antivirus locks) on that directory');
+  console.error('and re-run. settings.json was not changed.');
+  process.exit(1);
+}
 const command = `node "${collector}"`;
 
 if (fs.existsSync(settingsFile)) {

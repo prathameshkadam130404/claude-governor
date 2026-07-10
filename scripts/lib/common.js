@@ -14,6 +14,7 @@ const ARCHIVE_DIR = path.join(GOV_HOME, 'archives');
 const BIN_DIR = path.join(GOV_HOME, 'bin');
 const HISTORY_FILE = path.join(GOV_HOME, 'history.jsonl');
 const CONFIG_FILE = path.join(GOV_HOME, 'config.json');
+const SETTINGS_FILE = path.join(os.homedir(), '.claude', 'settings.json');
 
 const BAND = { CRUISE: 0, ECONOMY: 1, WIND_DOWN: 2, CHECKPOINT: 3 };
 const BAND_NAME = ['CRUISE', 'ECONOMY', 'WIND-DOWN', 'CHECKPOINT'];
@@ -496,29 +497,87 @@ function peekBand(sessionId, rawBand, fhPct) {
 // SessionStart hook refreshes the copy whenever the plugin version changes.
 // ---------------------------------------------------------------------------
 
-function pluginVersion() {
-  const manifest = readJson(
-    path.resolve(__dirname, '..', '..', '.claude-plugin', 'plugin.json'),
-    {}
-  );
-  return manifest.version || '0';
-}
+const COLLECTOR_FILES = ['statusline.js', path.join('lib', 'common.js')];
 
 // Copy statusline.js + this file to BIN_DIR; returns the stable collector path.
 function installCollectorBin() {
   const scriptsDir = path.resolve(__dirname, '..');
   fs.mkdirSync(path.join(BIN_DIR, 'lib'), { recursive: true });
-  fs.copyFileSync(path.join(scriptsDir, 'statusline.js'), path.join(BIN_DIR, 'statusline.js'));
-  fs.copyFileSync(path.join(scriptsDir, 'lib', 'common.js'), path.join(BIN_DIR, 'lib', 'common.js'));
-  fs.writeFileSync(path.join(BIN_DIR, 'VERSION'), pluginVersion());
+  for (const rel of COLLECTOR_FILES) {
+    fs.copyFileSync(path.join(scriptsDir, rel), path.join(BIN_DIR, rel));
+  }
   return path.join(BIN_DIR, 'statusline.js');
 }
 
-// True when the configured statusline command is governor's collector
-// (either the stable bin copy or a pre-0.2 direct path into the repo).
-function isGovernorStatusline(command) {
+// True when the bin copy's content differs from this plugin's source — the
+// refresh gate. Content comparison (not a version stamp) so a code change
+// shipped or dev-edited without a plugin.json bump still propagates.
+function collectorBinStale() {
+  const scriptsDir = path.resolve(__dirname, '..');
+  for (const rel of COLLECTOR_FILES) {
+    try {
+      if (
+        fs.readFileSync(path.join(scriptsDir, rel), 'utf8') !==
+        fs.readFileSync(path.join(BIN_DIR, rel), 'utf8')
+      ) {
+        return true;
+      }
+    } catch {
+      return true; // bin copy missing or unreadable
+    }
+  }
+  return false;
+}
+
+// Extract the statusline script path from a settings.json statusLine command.
+function statuslineCommandPath(command) {
   const cmd = String(command || '');
-  return /governor/i.test(cmd) && /statusline\.js/.test(cmd);
+  const m = cmd.match(/"([^"]*statusline\.js)"/) || cmd.match(/(\S*statusline\.js)/);
+  return m ? m[1] : null;
+}
+
+// Classify the configured statusLine command relative to governor:
+//   'none'    — no statusline configured
+//   'ours'    — a live governor collector (stable bin copy, or a legacy
+//               direct-path install identified by the file's own header —
+//               never by path substrings, so a user's unrelated
+//               statusline.js under a 'governor' directory stays foreign)
+//   'dead'    — governor's entry, but the target script no longer exists
+//               (e.g. a plugin-cache path after an update moved the cache)
+//   'foreign' — someone else's statusline; never touch without --force
+function statuslineOwnership(command) {
+  if (!command) return 'none';
+  const p = statuslineCommandPath(command);
+  if (!p) return 'foreign';
+  const norm = (x) => path.resolve(x).toLowerCase();
+  const isBin = norm(p) === norm(path.join(BIN_DIR, 'statusline.js'));
+  if (fs.existsSync(p)) {
+    if (isBin) return 'ours';
+    try {
+      const head = fs.readFileSync(p, 'utf8').slice(0, 300);
+      if (head.includes('governor/statusline.js')) return 'ours';
+    } catch {
+      /* unreadable → foreign */
+    }
+    return 'foreign';
+  }
+  // Target missing: claim it only if it's our bin path or carries the old
+  // governor path signature; otherwise it's someone else's broken bar.
+  return isBin || /governor/i.test(String(command)) ? 'dead' : 'foreign';
+}
+
+// Best-effort diagnostics sink for hook-side maintenance events (refresh and
+// repair failures must not be silent, but must never block a hook either).
+function traceLog(event, extra) {
+  try {
+    ensureDirs();
+    fs.appendFileSync(
+      path.join(RUNTIME_DIR, 'governor.log'),
+      JSON.stringify({ t: Date.now(), event, ...(extra || {}) }) + '\n'
+    );
+  } catch {
+    /* best-effort */
+  }
 }
 
 function projectDir(cwd) {
@@ -564,10 +623,13 @@ module.exports = {
   decide,
   peekBand,
   runtimeFresh,
-  pluginVersion,
   installCollectorBin,
-  isGovernorStatusline,
+  collectorBinStale,
+  statuslineCommandPath,
+  statuslineOwnership,
+  traceLog,
   BIN_DIR,
+  SETTINGS_FILE,
   projectDir,
   hookOutput,
 };

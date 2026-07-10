@@ -291,10 +291,11 @@ check(
   'bin copy complete',
   fs.existsSync(path.join(binDir, 'statusline.js')) && fs.existsSync(path.join(binDir, 'lib', 'common.js'))
 );
-const pluginVer = JSON.parse(
-  fs.readFileSync(path.join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8')
-).version;
-check('VERSION matches plugin manifest', fs.readFileSync(path.join(binDir, 'VERSION'), 'utf8').trim() === pluginVer);
+const srcCollector = fs.readFileSync(path.join(ROOT, 'scripts', 'statusline.js'), 'utf8');
+check(
+  'bin copy content matches source',
+  fs.readFileSync(path.join(binDir, 'statusline.js'), 'utf8') === srcCollector
+);
 let reinstallOk = true;
 try {
   run('install-statusline.js', {});
@@ -318,6 +319,22 @@ check(
   'foreign statusline untouched after refusal',
   JSON.parse(fs.readFileSync(settingsFile, 'utf8')).statusLine.command === 'my-custom-bar.sh'
 );
+// A foreign statusline whose PATH merely contains 'governor' and ends in
+// statusline.js must still be refused — ownership is by content, not path.
+const trapDir = path.join(FAKE_HOME, 'governor-tools');
+fs.mkdirSync(trapDir, { recursive: true });
+fs.writeFileSync(path.join(trapDir, 'statusline.js'), 'console.log("my own bar");\n');
+fs.writeFileSync(
+  settingsFile,
+  JSON.stringify({ statusLine: { type: 'command', command: `node "${path.join(trapDir, 'statusline.js')}"` } })
+);
+let trapRefused = false;
+try {
+  run('install-statusline.js', {});
+} catch {
+  trapRefused = true;
+}
+check('governor-lookalike path still refused without --force', trapRefused);
 execFileSync('node', [path.join(ROOT, 'scripts', 'install-statusline.js'), '--force'], {
   env: { ...process.env, HOME: FAKE_HOME, USERPROFILE: FAKE_HOME },
   cwd: FAKE_PROJ,
@@ -336,10 +353,33 @@ const out14 = run('session-restore.js', {
   source: 'startup',
 });
 check('no install nudge once collector installed', !out14.includes('governor:install'), out14.slice(0, 200));
-// Plugin update self-heal: stale VERSION in the bin copy gets refreshed.
-fs.writeFileSync(path.join(binDir, 'VERSION'), '0.0.0-stale');
+// Plugin update self-heal: a bin copy whose content drifted gets re-copied.
+fs.appendFileSync(path.join(binDir, 'statusline.js'), '\n// stale drift\n');
 run('session-restore.js', { session_id: 'new-session-3', cwd: FAKE_PROJ, hook_event_name: 'SessionStart', source: 'startup' });
-check('stale bin copy refreshed on session start', fs.readFileSync(path.join(binDir, 'VERSION'), 'utf8').trim() === pluginVer);
+check(
+  'stale bin copy refreshed on session start',
+  fs.readFileSync(path.join(binDir, 'statusline.js'), 'utf8') === srcCollector
+);
+// Dead-entry repair: governor's own statusline pointing at a path that no
+// longer exists (plugin cache moved) is re-pointed at the stable bin copy.
+const deadPath = path.join(FAKE_HOME, 'plugins', 'cache', 'governor-oldhash', 'scripts', 'statusline.js');
+fs.writeFileSync(
+  settingsFile,
+  JSON.stringify({ statusLine: { type: 'command', command: `node "${deadPath}"` } })
+);
+const out14b = run('session-restore.js', {
+  session_id: 'new-session-3',
+  cwd: FAKE_PROJ,
+  hook_event_name: 'SessionStart',
+  source: 'startup',
+});
+check('dead governor entry announces repair', out14b.includes('Repaired'), out14b.slice(0, 200));
+check(
+  'dead governor entry re-pointed at bin copy',
+  JSON.parse(fs.readFileSync(settingsFile, 'utf8')).statusLine.command.includes(
+    path.join('governor', 'bin', 'statusline.js')
+  )
+);
 // userConfig env options are mirrored into config.json for the collector.
 run(
   'session-restore.js',

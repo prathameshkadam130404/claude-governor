@@ -88,7 +88,7 @@ function main() {
     now - snapshot.t0 > 5 * 60_000 &&
     !c.runtimeFresh(sessionId, 10 * 60_000)
   ) {
-    parts.push('\x1b[31m⚠ hooks off?\x1b[0m');
+    parts.push('\x1b[31m⚠ hooks off?' + RESET);
   }
 
   process.stdout.write(parts.join('  ·  '));

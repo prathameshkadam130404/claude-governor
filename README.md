@@ -113,7 +113,9 @@ session (quota appears after the first API response), then run
 
 The collector is copied to `~/.claude/governor/bin/` rather than referenced
 inside the plugin's cache directory (which moves on every update); the plugin
-refreshes that copy automatically when its version changes.
+refreshes that copy automatically whenever its content drifts from the plugin
+source, and repairs the settings entry if a plugin update ever leaves it
+pointing at a path that no longer exists.
 
 ### Two failure alarms, both directions
 
@@ -122,7 +124,9 @@ refreshes that copy automatically when its version changes.
   plugin) → the statusline shows **`⚠ hooks off?`** whenever pressure is at
   ECONOMY+ and the injector hasn't run in 10 minutes. The gauge being green
   while the model is blind was the failure mode that motivated this: never
-  trust a display alone.
+  trust a display alone. (It's a heuristic: a single tool call or idle
+  stretch longer than 10 minutes can flash it in a healthy session — it
+  clears on the next prompt or tool batch.)
 
 ### Development install
 
