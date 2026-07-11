@@ -52,12 +52,12 @@ escalates while 87%-and-coasting doesn't.
 journal-built checkpoint and preserved artifacts restore the work in the
 next session:
 
-![Auto checkpoint and resume demo](https://github.com/prathameshkadam130404/claude-governor/releases/download/v0.2.0/auto-checkpoint-resume.gif)
+![Auto checkpoint and resume demo](https://github.com/prathameshkadam130404/claude-governor/releases/download/v1.0-beta/auto-checkpoint-resume-demo.gif)
 
 **Subagents inherit the budget.** Spawn prompts are rewritten in-flight to
 carry the current band and a durable-output contract:
 
-![Subagent budget contract demo](https://github.com/prathameshkadam130404/claude-governor/releases/download/v0.2.0/spawn-agent-contract.gif)
+![Subagent budget contract demo](https://github.com/prathameshkadam130404/claude-governor/releases/download/v1.0-beta/spawn-agent-contract-demo.gif)
 
 ## Example use cases
 
