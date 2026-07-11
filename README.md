@@ -82,40 +82,50 @@ and their final messages are preserved to disk regardless.
 
 ## Install
 
-Requires Node.js (Claude Code runs on Node, so you have it). Quota data needs
-a Pro/Max subscription; API-key users get context-only mode.
-
-**1. Install the plugin** (persists across sessions and `--resume`):
+Two commands in your terminal, one inside Claude Code. That's it.
 
 ```bash
 claude plugin marketplace add prathameshkadam130404/claude-governor
 claude plugin install governor@claude-governor
 ```
 
-Or in-session: `/plugin marketplace add prathameshkadam130404/claude-governor`,
-`/plugin install governor@claude-governor`, then `/reload-plugins`.
-
-**2. Install the collector** — plugins can't ship a main statusline, so this
-one step writes it into your `~/.claude/settings.json` (backup first). From
-inside Claude Code:
+Then open Claude Code and run:
 
 ```
 /governor:install
 ```
 
-If you skip this, governor tells you at the next session start — the plugin
-detects a missing collector and nudges.
+When the plugin asks about thresholds and contract mode during install, just
+accept the defaults — they're the tested ones.
 
-Enabling the plugin prompts for the band thresholds and subagent contract
-mode (defaults are sensible; just accept them). Verify: send one message in a
-session (quota appears after the first API response), then run
-`/governor:status`.
+**Check it worked:** send any message, then run `/governor:status`. You
+should see your band, context %, and quota %. In the status bar you'll see
+something like:
 
-The collector is copied to `~/.claude/governor/bin/` rather than referenced
-inside the plugin's cache directory (which moves on every update); the plugin
-refreshes that copy automatically whenever its content drifts from the plugin
-source, and repairs the settings entry if a plugin update ever leaves it
-pointing at a path that no longer exists.
+```
+⛽ CRUISE  ·  ctx 12%  ·  5h ▓▓░░░░░░ 19% ↺4h52m  ·  7d 2% ↺6d
+```
+
+**Requirements:** Node.js (Claude Code already runs on it) and a Pro/Max
+subscription for quota data — API-key users still get context-window mode.
+
+<details>
+<summary>What each step does, and why there are two</summary>
+
+- The **plugin** (step 1) carries the hooks, skills, and commands. Installing
+  via the marketplace persists across sessions and `--resume` — unlike
+  `--plugin-dir`, which is per-launch.
+- **`/governor:install`** (step 2) sets up the *collector*: Claude Code
+  plugins can't ship a main statusline, so this writes one line into
+  `~/.claude/settings.json` (a timestamped backup is saved first, and an
+  existing non-governor statusline is never replaced without your consent).
+- The collector is copied to `~/.claude/governor/bin/` instead of running
+  from the plugin's cache directory (which moves on every update). The
+  plugin refreshes that copy when its content drifts and repairs the
+  settings entry if an update ever leaves it pointing at a dead path.
+- Forgot step 2? Governor notices at the next session start and reminds you.
+
+</details>
 
 ### Two failure alarms, both directions
 
