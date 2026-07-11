@@ -1,5 +1,7 @@
 # ⛽ Governor
 
+![tests](https://github.com/prathameshkadam130404/claude-governor/actions/workflows/test.yml/badge.svg)
+
 **A budget-aware agent loop for Claude Code.** Makes the agent — and its
 subagents — continuously aware of both the context window *and* the
 subscription quota clock (5-hour / 7-day windows), so it economizes under

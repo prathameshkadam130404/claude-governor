@@ -1,5 +1,6 @@
 {
   "name": "claude-governor",
+  "description": "Governor: budget-aware agent loop for Claude Code — quota + context awareness injected into the model every turn, with durable checkpoints and clean resume.",
   "owner": {
     "name": "Prathamesh Kadam"
   },
