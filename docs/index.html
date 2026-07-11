@@ -117,6 +117,23 @@ claude plugin install governor@claude-governor</code></pre>
 <pre><code>⛽ CRUISE  ·  ctx 12%  ·  5h ▓▓░░░░░░ 19% ↺4h52m  ·  7d 2% ↺6d</code></pre>
 <p class="muted">Requires Node.js (Claude Code already runs on it). Quota data needs a Pro/Max subscription; API-key users get context-only mode. Zero dependencies, everything local, no telemetry, MIT.</p>
 
+<h2>Example use cases</h2>
+
+<div class="card">
+  <h3>Example 1 — The 11 PM refactor that doesn't eat itself</h3>
+  <p>You hand Claude a three-part refactor at 87% of your 5-hour window. Without governor, it starts all three, the window slams shut mid-file, and you resume tomorrow to a half-renamed codebase. With governor, the WIND-DOWN directive lands before the first edit: the model <em>declines to start</em>, scopes the work, writes <code>.governor/RESUME.md</code> with the exact order to do it in, and tells you when the window resets. Next session picks the note up automatically and executes it whole.</p>
+</div>
+
+<div class="card">
+  <h3>Example 2 — Research fan-out that survives the cutoff</h3>
+  <p>Four Explore subagents are sweeping a large codebase when the quota dies with no warning. Normally their findings die with the session — resume flags restore the <em>conversation</em>, not the discarded agent work. Governor teed every subagent's final message to <code>.governor/subagents/</code> the moment each one finished, and machine-wrote <code>RESUME.auto.md</code> from the tool journal at death. The next session starts with "read these 4 preserved outputs before redoing any research" already injected — zero tokens re-spent on what was already learned.</p>
+</div>
+
+<div class="card">
+  <h3>Example 3 — Early warning at 67%, not a panic at 97%</h3>
+  <p>A parallel-agent workload is burning 2%/min. The raw percentage says 67% — comfortably "fine" — but the regression says dry in ~30 minutes, well before the reset. Governor escalates to ECONOMY early: the model switches to targeted reads, batches tool calls, and hands search to cheap subagents. The window stretches to cover the whole task instead of dying at 90% with the finale unwritten. (This exact escalation-below-threshold happened in live validation.)</p>
+</div>
+
 <h2>How it works</h2>
 <div class="grid">
   <div class="card"><h3>1 · Collector</h3>A statusline shim persists the budget JSON Claude Code already emits (<code>context_window</code>, <code>rate_limits</code>) — no scraping, no undocumented APIs.</div>

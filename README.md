@@ -59,6 +59,29 @@ carry the current band and a durable-output contract:
 
 ![Subagent budget contract demo](https://github.com/prathameshkadam130404/claude-governor/releases/download/v0.2.0/spawn-agent-contract.gif)
 
+## Example use cases
+
+**Example 1 — the 11 PM refactor that doesn't eat itself.** You hand Claude a
+three-part refactor at 87% of your 5h window. Without governor: it starts all
+three, the window slams shut mid-file, tomorrow you inherit a half-renamed
+codebase. With governor: WIND-DOWN lands before the first edit, the model
+declines to start, writes `.governor/RESUME.md` with the execution order, and
+tells you when the reset lands. The next session picks it up automatically.
+
+**Example 2 — research fan-out that survives the cutoff.** Four Explore
+subagents are sweeping a codebase when the quota dies unannounced. Resume
+flags restore the *conversation* — not the discarded agent work. Governor
+already teed each subagent's final message to `.governor/subagents/` and
+machine-wrote `RESUME.auto.md` from the journal at death; the next session
+opens with "read these preserved outputs before redoing any research."
+
+**Example 3 — early warning at 67%, not panic at 97%.** A parallel workload
+burns 2%/min. The raw percentage says "fine"; the regression says dry in ~30
+minutes, before the reset. Governor escalates to ECONOMY early — targeted
+reads, batched calls, cheap subagents for search — and the window stretches
+to cover the whole task. (This exact below-threshold escalation happened in
+live validation.)
+
 ## Live validation transcript (real session, real quota)
 
 The band directives measurably change behavior. Given a deliberately
