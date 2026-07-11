@@ -44,6 +44,19 @@ most severe: context %, 5h projection, or 7d projection — where projections
 race the burn rate (EWMA %/min) against the reset clock, so 67%-and-hemorrhaging
 escalates while 87%-and-coasting doesn't.
 
+## See it work
+
+**Checkpoint → interruption → resume.** The session is cut off; governor's
+journal-built checkpoint and preserved artifacts restore the work in the
+next session:
+
+![Auto checkpoint and resume demo](https://github.com/prathameshkadam130404/claude-governor/releases/download/v0.2.0/auto-checkpoint-resume.gif)
+
+**Subagents inherit the budget.** Spawn prompts are rewritten in-flight to
+carry the current band and a durable-output contract:
+
+![Subagent budget contract demo](https://github.com/prathameshkadam130404/claude-governor/releases/download/v0.2.0/spawn-agent-contract.gif)
+
 ## Live validation transcript (real session, real quota)
 
 The band directives measurably change behavior. Given a deliberately
