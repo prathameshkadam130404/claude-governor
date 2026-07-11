@@ -5,6 +5,7 @@
   "author": {
     "name": "Prathamesh Kadam"
   },
+  "homepage": "https://prathameshkadam130404.github.io/claude-governor/",
   "repository": "https://github.com/prathameshkadam130404/claude-governor",
   "license": "MIT",
   "keywords": ["budget", "quota", "rate-limit", "usage", "context-window", "checkpoint", "resume", "statusline"],

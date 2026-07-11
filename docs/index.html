@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⛽ Governor — budget-aware agent loop for Claude Code</title>
+<meta name="description" content="Governor makes Claude Code aware of its own usage quota: per-turn budget injection, burn-rate forecasting, durable checkpoints, and clean resume after usage-limit cutoffs.">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #6b7280; --accent: #b45309;
+    --card: #f6f6f4; --border: #e5e5e0; --code-bg: #f0f0ec; --good: #15803d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12100e; --fg: #ece9e4; --muted: #9b968e; --accent: #f59e0b;
+      --card: #1c1916; --border: #2e2a25; --code-bg: #201d19; --good: #4ade80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.65 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px 80px; }
+  header { text-align: center; padding: 72px 0 40px; }
+  header h1 { font-size: 2.6rem; margin: 0 0 10px; letter-spacing: -0.02em; }
+  header p.tag { font-size: 1.2rem; color: var(--muted); max-width: 620px; margin: 0 auto 24px; }
+  .badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .badges a { text-decoration: none; }
+  .btn {
+    display: inline-block; padding: 10px 22px; border-radius: 8px; font-weight: 600;
+    text-decoration: none; margin: 4px 6px;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-ghost { border: 1px solid var(--border); color: var(--fg); }
+  h2 { font-size: 1.5rem; margin: 56px 0 14px; letter-spacing: -0.01em; }
+  h3 { font-size: 1.1rem; margin: 28px 0 8px; }
+  p, li { color: var(--fg); }
+  .muted { color: var(--muted); }
+  code, pre {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.9em;
+    background: var(--code-bg); border-radius: 6px;
+  }
+  code { padding: 2px 6px; }
+  pre { padding: 14px 16px; overflow-x: auto; border: 1px solid var(--border); }
+  pre code { background: none; padding: 0; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; margin: 14px 0;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .scroll { overflow-x: auto; }
+  img.demo { max-width: 100%; border-radius: 12px; border: 1px solid var(--border); margin: 10px 0 4px; }
+  .band { font-weight: 700; }
+  .b0 { color: var(--good); } .b1 { color: #ca8a04; } .b2 { color: #ea580c; } .b3 { color: #dc2626; }
+  blockquote {
+    margin: 14px 0; padding: 12px 18px; border-left: 3px solid var(--accent);
+    background: var(--card); border-radius: 0 10px 10px 0; color: var(--fg);
+  }
+  footer { margin-top: 72px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>⛽ Governor</h1>
+  <p class="tag">A budget-aware agent loop for Claude Code. The model sees its context <em>and</em> its 5-hour / 7-day usage quota every turn — so it economizes under pressure, checkpoints durably, and resumes cleanly instead of dying mid-task.</p>
+  <div class="badges">
+    <a href="https://github.com/prathameshkadam130404/claude-governor/actions/workflows/test.yml"><img src="https://github.com/prathameshkadam130404/claude-governor/actions/workflows/test.yml/badge.svg" alt="tests"></a>
+    <a href="https://github.com/prathameshkadam130404/claude-governor/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
+    <a href="https://github.com/prathameshkadam130404/claude-governor/releases"><img src="https://img.shields.io/github/v/release/prathameshkadam130404/claude-governor" alt="release"></a>
+  </div>
+  <p>
+    <a class="btn btn-primary" href="#install">Install</a>
+    <a class="btn btn-ghost" href="https://github.com/prathameshkadam130404/claude-governor">GitHub</a>
+  </p>
+</header>
+
+<h2>The problem</h2>
+<p>Two limits interrupt long agentic work. Claude models are natively aware of one of them:</p>
+<div class="scroll"><table>
+  <tr><th></th><th>Context window</th><th>Usage quota (5h / 7d)</th></tr>
+  <tr><td>Model aware?</td><td>✅ native</td><td>❌ <strong>never shown to the model</strong></td></tr>
+  <tr><td>Failure mode</td><td>lossy auto-compaction</td><td>hard mid-task cutoff</td></tr>
+</table></div>
+<p>The quota clock is invisible to the model: it will happily spawn three parallel subagents four minutes before your 5-hour window slams shut, and everything they learned dies with the session. Dozens of tools display quota gauges — <em>to the human</em>. Governor puts the gauge in front of the <strong>model</strong>, every turn, with a policy attached.</p>
+
+<h2>What the model sees</h2>
+<pre><code>[governor] ctx 62% | 5h 87% (resets 14:32, 41m) burn 1.9%/m → dry ~7m
+band: WIND-DOWN (5h-quota) — finish the current unit and deliver it to the
+user; start NOTHING new; update .governor/RESUME.md with state + next step.</code></pre>
+<p>Injected at turn start and after every tool batch <strong>mid-turn</strong>. Four bands: <span class="band b0">CRUISE</span> (silent) → <span class="band b1">ECONOMY</span> (economize) → <span class="band b2">WIND-DOWN</span> (finish, start nothing) → <span class="band b3">CHECKPOINT</span> (save state, end cleanly). Burn-rate forecasting races your spend against the reset clock, so 67%-and-hemorrhaging escalates while 87%-and-coasting doesn't.</p>
+
+<h2>See it work</h2>
+<h3>Checkpoint → interruption → resume</h3>
+<img class="demo" src="https://github.com/prathameshkadam130404/claude-governor/releases/download/v0.2.0/auto-checkpoint-resume.gif" alt="Auto checkpoint and resume demo" loading="lazy">
+<h3>Subagents inherit the budget</h3>
+<img class="demo" src="https://github.com/prathameshkadam130404/claude-governor/releases/download/v0.2.0/spawn-agent-contract.gif" alt="Subagent budget contract demo" loading="lazy">
+
+<h2>Real transcript, real quota</h2>
+<p>Given a deliberately expandable 3-part refactor task while in WIND-DOWN, the model replied:</p>
+<blockquote>I'm holding off on this task — the policy is explicit: start nothing new, so you get finished units rather than a stump of a half-refactored codebase. What I did instead: scoped the work (11 scripts), wrote the resume note with the order, and two open decisions for you. The 5h quota resets at 22:30.</blockquote>
+<p class="muted">Earlier in the same run, the burn projection pushed the model into ECONOMY at 67% used — below the 70% threshold — because the slope said dry-in-30-minutes.</p>
+
+<h2 id="install">Install</h2>
+<p>Two commands in your terminal, one inside Claude Code:</p>
+<pre><code>claude plugin marketplace add prathameshkadam130404/claude-governor
+claude plugin install governor@claude-governor</code></pre>
+<p>Then, inside Claude Code:</p>
+<pre><code>/governor:install</code></pre>
+<p>Check it worked: send any message, then run <code>/governor:status</code>. Your status bar will show something like:</p>
+<pre><code>⛽ CRUISE  ·  ctx 12%  ·  5h ▓▓░░░░░░ 19% ↺4h52m  ·  7d 2% ↺6d</code></pre>
+<p class="muted">Requires Node.js (Claude Code already runs on it). Quota data needs a Pro/Max subscription; API-key users get context-only mode. Zero dependencies, everything local, no telemetry, MIT.</p>
+
+<h2>How it works</h2>
+<div class="grid">
+  <div class="card"><h3>1 · Collector</h3>A statusline shim persists the budget JSON Claude Code already emits (<code>context_window</code>, <code>rate_limits</code>) — no scraping, no undocumented APIs.</div>
+  <div class="card"><h3>2 · Injector</h3>Hooks inject the <code>[governor]</code> line with band, burn rate, and projected exhaustion vs. reset — at turn start and mid-turn after every tool batch.</div>
+  <div class="card"><h3>3 · Policy</h3>A skill defines what each band requires, so the directive is enforceable, not vibes.</div>
+  <div class="card"><h3>4 · Durability</h3>Every tool call journaled; every subagent's final message teed to disk; transcript archived before compaction; <code>RESUME.auto.md</code> machine-written on rate-limit death — zero model cooperation needed.</div>
+  <div class="card"><h3>5 · Resume</h3>The next session starts with the checkpoint and preserved subagent outputs injected.</div>
+  <div class="card"><h3>Self-checks</h3>Setup nudge if the collector is missing; a red <code>⚠ hooks off?</code> statusline marker if the plugin's hooks aren't loaded. Both failure directions announce themselves.</div>
+</div>
+
+<h2>Commands</h2>
+<div class="scroll"><table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>/governor:install</code></td><td>Finish setup — writes the collector statusline (backup first, consent required to replace a foreign one)</td></tr>
+  <tr><td><code>/governor:status</code></td><td>Current band, quota, burn rate, durability artifacts</td></tr>
+  <tr><td><code>/governor:analytics</code></td><td>Session costs, burn behavior, observed resets, weekly usage, per-project footprint — local data only</td></tr>
+</table></div>
+
+<h2>Honest limitations</h2>
+<ul>
+  <li>A single uninterrupted text generation has no hook point mid-stream — true for native context awareness too.</li>
+  <li>Quota fields exist only for Pro/Max, after the first API response; everything degrades gracefully to context-only mode.</li>
+  <li>Headless (<code>claude -p</code>) collector cadence is unverified; interactive sessions are the validated path.</li>
+  <li>If Anthropic ships native quota awareness someday: good. The durability layer stays valuable regardless.</li>
+</ul>
+
+<footer>
+  <p>MIT · <a href="https://github.com/prathameshkadam130404/claude-governor">github.com/prathameshkadam130404/claude-governor</a> · built by Prathamesh Kadam</p>
+</footer>
+
+</div>
+</body>
+</html>
