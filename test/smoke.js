@@ -94,6 +94,11 @@ const dip = [
 ];
 const dipSlope = c.burnRate(dip, 'fh', cfg0);
 check('stale dip does not fake a reset', dipSlope !== null && dipSlope > 0.3 && dipSlope < 0.8, String(dipSlope));
+// Significance gate: pure alternating noise (80,81,80,81…) has no real
+// slope; the 2×SE gate must report no burn rather than a tiny positive one.
+const noisy = [];
+for (let i = 0; i <= 10; i++) noisy.push({ t: T - (10 - i) * 60_000, fh: 80 + (i % 2) });
+check('alternating noise yields no burn', c.burnRate(noisy, 'fh', cfg0) === null, String(c.burnRate(noisy, 'fh', cfg0)));
 // peekBand: read-only debounced view with the fast-drop (reset) bypass.
 c.decide('peek-test', mk(c.BAND.CHECKPOINT), dbCfg); // stores band=CHECKPOINT, lastFh=80
 check('peek shows debounced band', c.peekBand('peek-test', c.BAND.CRUISE, 80) === c.BAND.CHECKPOINT);
@@ -160,6 +165,8 @@ run('journal.js', {
 });
 const jfile = path.join(FAKE_PROJ, '.governor', 'journal.jsonl');
 check('journal entry written', fs.existsSync(jfile) && fs.readFileSync(jfile, 'utf8').includes('src/app.ts'));
+const giFile = path.join(FAKE_PROJ, '.governor', '.gitignore');
+check('.governor is self-ignoring', fs.existsSync(giFile) && fs.readFileSync(giFile, 'utf8').trim() === '*');
 
 console.log('7. Subagent tee (subagent-tee.js)');
 run('subagent-tee.js', {
@@ -414,6 +421,11 @@ run(
 const cfg14b = JSON.parse(fs.readFileSync(path.join(govDir, 'config.json'), 'utf8'));
 check('inverted thresholds rejected', cfg14b.thresholds.context.economy === 60, JSON.stringify(cfg14b.thresholds));
 fs.rmSync(path.join(govDir, 'config.json'));
+
+console.log('14b. Analytics (analytics.js)');
+const out14c = run('analytics.js', {});
+check('analytics reports sessions', out14c.includes('sessions') && out14c.includes('cost'), out14c.slice(0, 300));
+check('analytics reports project footprint', out14c.includes('journaled tool calls') && out14c.includes('subagents'), out14c.slice(0, 300));
 
 console.log('15. Hooks-off marker (statusline.js)');
 const SID3 = 'hooks-off-3';

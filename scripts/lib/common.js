@@ -38,6 +38,8 @@ const DEFAULT_CONFIG = {
   burnWindowMinutes: 20,
   burnMinSpanMinutes: 4,
   burnMinSamples: 4,
+  // Recency weighting: a sample this many minutes old counts half as much.
+  burnHalfLifeMinutes: 8,
   // De-escalation debounce: a lower band must hold this long before the
   // official band drops. Escalation is always immediate.
   deescalateSeconds: 180,
@@ -251,16 +253,44 @@ function burnRate(history, key, cfg) {
   const spanMin = (pts[pts.length - 1].t - pts[0].t) / 60_000;
   if (spanMin < minSpan) return null;
 
+  // Recency-weighted least squares: burn is rarely constant across the
+  // window (subagent bursts, idle gaps), so newer samples count more — a
+  // one-formula approximation of piecewise regression that adapts to
+  // regime changes without breakpoint detection.
+  const halfLife = (cfg && cfg.burnHalfLifeMinutes) || 8;
   const t0 = pts[0].t;
-  let n = pts.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  const tN = pts[pts.length - 1].t;
+  const n = pts.length;
+  let sw = 0, swx = 0, swy = 0, swxx = 0, swxy = 0;
   for (const p of pts) {
     const x = (p.t - t0) / 60_000;
-    sx += x; sy += p.v; sxx += x * x; sxy += x * p.v;
+    const w = Math.pow(0.5, (tN - p.t) / 60_000 / halfLife);
+    sw += w; swx += w * x; swy += w * p.v; swxx += w * x * x; swxy += w * x * p.v;
   }
-  const denom = n * sxx - sx * sx;
+  const denom = sw * swxx - swx * swx;
   if (denom <= 0) return null;
-  const slope = (n * sxy - sx * sy) / denom;
-  return slope > 0.01 ? slope : null; // %/minute, or null if flat/unknown
+  const slope = (sw * swxy - swx * swy) / denom;
+  if (slope <= 0.01) return null; // flat/unknown
+
+  // Significance gate: integer-quantized samples make short windows noisy.
+  // Demand the slope exceed twice its standard error, or report no burn —
+  // the pragmatic form of a confidence interval when the only consumer is
+  // a threshold-band decision.
+  const intercept = (swy - slope * swx) / sw;
+  let sse = 0;
+  for (const p of pts) {
+    const x = (p.t - t0) / 60_000;
+    const w = Math.pow(0.5, (tN - p.t) / 60_000 / halfLife);
+    const e = p.v - (intercept + slope * x);
+    sse += w * e * e;
+  }
+  const sxxw = swxx - (swx * swx) / sw;
+  const dof = n - 2;
+  if (dof > 0 && sxxw > 0) {
+    const se = Math.sqrt((sse / sw) * (n / dof) / sxxw);
+    if (slope < 2 * se) return null;
+  }
+  return slope; // %/minute
 }
 
 // ---------------------------------------------------------------------------
@@ -583,6 +613,15 @@ function traceLog(event, extra) {
 function projectDir(cwd) {
   const d = path.join(cwd || process.cwd(), '.governor');
   fs.mkdirSync(path.join(d, 'subagents'), { recursive: true });
+  // Self-ignoring: a nested .gitignore keeps governor artifacts out of the
+  // user's repo without ever touching their own .gitignore. Committing
+  // RESUME.md deliberately still works via `git add -f`.
+  const gi = path.join(d, '.gitignore');
+  try {
+    if (!fs.existsSync(gi)) fs.writeFileSync(gi, '*\n');
+  } catch {
+    /* best-effort */
+  }
   return d;
 }
 

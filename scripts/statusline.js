@@ -67,11 +67,27 @@ function main() {
   const DIM = '\x1b[2m';
   const bandColor = ['\x1b[32m', '\x1b[33m', '\x1b[38;5;208m', '\x1b[31m'][band];
 
+  // 8-slot gauge for the 5h window — the metric that actually cuts sessions.
+  const bar = (pct) => {
+    const filled = Math.round(Math.min(100, Math.max(0, pct)) / 12.5);
+    return '▓'.repeat(filled) + '░'.repeat(8 - filled);
+  };
+
   const parts = [];
   parts.push(bandColor + '⛽ ' + c.BAND_NAME[band] + RESET);
   if (typeof a.ctxPct === 'number') parts.push('ctx ' + Math.round(a.ctxPct) + '%');
   if (typeof a.fh.pct === 'number') {
-    parts.push('5h ' + Math.round(a.fh.pct) + '%' + DIM + ' ↺' + c.fmtMins(a.fh.reset) + RESET);
+    parts.push(
+      '5h ' + bar(a.fh.pct) + ' ' + Math.round(a.fh.pct) + '%' + DIM + ' ↺' + c.fmtMins(a.fh.reset) + RESET
+    );
+    // Expected cutoff: only when the projection says we run dry BEFORE the
+    // reset rescues us — the one case where the clock actually matters.
+    if (a.fh.burn) {
+      const dry = Math.round((100 - a.fh.pct) / a.fh.burn);
+      if (a.fh.reset === null || dry < a.fh.reset) {
+        parts.push('\x1b[31m⏳ dry~' + c.fmtMins(dry) + RESET);
+      }
+    }
   }
   if (typeof a.sd.pct === 'number') {
     parts.push('7d ' + Math.round(a.sd.pct) + '%' + DIM + ' ↺' + c.fmtMins(a.sd.reset) + RESET);

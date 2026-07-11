@@ -163,6 +163,7 @@ shown; plugin-prompted keys win over manual edits of the same keys):
   "burnWindowMinutes": 20,
   "burnMinSpanMinutes": 4,
   "burnMinSamples": 4,
+  "burnHalfLifeMinutes": 8,
   "staleMinutes": 10,
   "archiveMax": 10
 }
@@ -177,9 +178,14 @@ shown; plugin-prompted keys win over manual edits of the same keys):
 - `deescalateSeconds` — bands escalate instantly but drop only after the
   lower band holds this long (a real window reset bypasses the debounce).
   Quota percentages arrive as integers; without smoothing and debounce the
-  band flaps. Burn rate itself is a least-squares slope over
-  `burnWindowMinutes` of samples (requiring `burnMinSamples` spanning
-  `burnMinSpanMinutes`), not a jumpy sample-to-sample delta.
+  band flaps. Burn rate itself is a **recency-weighted** least-squares slope
+  over `burnWindowMinutes` of samples (requiring `burnMinSamples` spanning
+  `burnMinSpanMinutes`; a sample `burnHalfLifeMinutes` old counts half) —
+  newer samples dominate so regime changes (subagent burst after an idle
+  stretch) register quickly, and a significance gate (slope must exceed 2×
+  its standard error) suppresses noise-driven escalations. Kalman/Bayesian
+  filtering was considered and rejected: the input is an integer percentage
+  with ~10 usable samples per window; there is no headroom for it to help.
 - `contractMode` — how the durable-output contract reaches subagent prompts.
   `"allow"` (default) returns `permissionDecision: "allow"` with the rewritten
   input — required on builds that ignore `updatedInput` without a decision;
@@ -201,8 +207,19 @@ shown; plugin-prompted keys win over manual edits of the same keys):
 | `<project>/.governor/RESUME.md` | agent-written checkpoint (authoritative) |
 | `<project>/.governor/RESUME.auto.md` | machine-generated checkpoint |
 
-Add `.governor/` to your project's `.gitignore` — or commit `RESUME.md`
-deliberately as a team checkpoint.
+`.governor/` is self-ignoring: governor writes a `.governor/.gitignore`
+containing `*`, so nothing lands in your repo and your own `.gitignore` is
+never touched. To commit `RESUME.md` deliberately as a team checkpoint:
+`git add -f .governor/RESUME.md`.
+
+## Commands
+
+- `/governor:install` — finish setup (writes the collector statusline,
+  backup first)
+- `/governor:status` — current band, quota, burn, and durability artifacts
+- `/governor:analytics` — session costs, burn behavior, observed resets,
+  weekly usage, and this project's tool/subagent footprint (local data only;
+  the feed carries no token counts, so no invented "token efficiency")
 
 ## How it differs from prior art
 
