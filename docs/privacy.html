@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Governor</title>
+<meta name="description" content="Privacy policy for the Governor plugin for Claude Code: no data collection, no telemetry, everything stays on your machine.">
+<style>
+  :root { --bg:#ffffff; --fg:#1a1a1a; --muted:#6b7280; --accent:#b45309; --border:#e5e5e0; --code-bg:#f0f0ec; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12100e; --fg:#ece9e4; --muted:#9b968e; --accent:#f59e0b; --border:#2e2a25; --code-bg:#201d19; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:48px 20px 80px; }
+  h1 { font-size:2rem; letter-spacing:-0.02em; margin:0 0 4px; }
+  .muted { color:var(--muted); }
+  h2 { font-size:1.2rem; margin:36px 0 10px; }
+  code { font-family:ui-monospace,Consolas,monospace; font-size:0.9em; background:var(--code-bg); padding:2px 6px; border-radius:6px; }
+  a { color:var(--accent); }
+  footer { margin-top:56px; padding-top:20px; border-top:1px solid var(--border); color:var(--muted); font-size:0.9rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Privacy Policy</h1>
+<p class="muted">Governor plugin for Claude Code · Effective 2026-07-11</p>
+
+<h2>Summary</h2>
+<p><strong>Governor collects no data, sends no data, and has no servers.</strong> It is a fully local, zero-dependency, open-source tool. There is no telemetry, no analytics, no account, and no network communication of any kind initiated by the plugin.</p>
+
+<h2>What Governor does with data</h2>
+<p>Governor reads session metadata that Claude Code already provides locally on your machine — context-window usage, rate-limit percentages and reset times, model name, and session cost — and writes derived state to files <em>on your own machine only</em>:</p>
+<ul>
+  <li><code>~/.claude/governor/</code> — budget snapshots, burn-rate history, runtime state, diagnostics log, pre-compaction transcript archives</li>
+  <li><code>&lt;your project&gt;/.governor/</code> — a journal of tool-call names/targets, preserved subagent outputs, and resume checkpoints</li>
+  <li><code>~/.claude/settings.json</code> — one statusline entry, written only via the explicit <code>/governor:install</code> step, with a timestamped backup created first</li>
+</ul>
+<p>These files never leave your machine unless you copy or commit them yourself. The project directory is self-ignored from git by default (a nested <code>.gitignore</code>), so governor artifacts are not committed accidentally.</p>
+
+<h2>What Governor does NOT do</h2>
+<ul>
+  <li>No telemetry, analytics, crash reporting, or usage tracking</li>
+  <li>No network requests — the plugin has zero runtime dependencies and no HTTP code</li>
+  <li>No collection of prompts, code, credentials, or personal information</li>
+  <li>No accounts, cookies, or identifiers</li>
+</ul>
+
+<h2>Third parties</h2>
+<p>Governor runs inside Claude Code and only processes data Claude Code exposes locally. Your relationship with Anthropic (including what Claude Code itself transmits) is governed by <a href="https://www.anthropic.com/legal/privacy">Anthropic's Privacy Policy</a>, not this one. This documentation site is hosted on GitHub Pages, which is governed by <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's Privacy Statement</a>; the site itself contains no trackers.</p>
+
+<h2>Data removal</h2>
+<p>Everything is plain files you own. To remove all governor data: uninstall the plugin, delete <code>~/.claude/governor/</code> and any project <code>.governor/</code> directories, and restore the settings backup (or remove the <code>statusLine</code> key). Nothing persists anywhere else.</p>
+
+<h2>Changes & contact</h2>
+<p>Any change to this policy will be committed to the <a href="https://github.com/prathameshkadam130404/claude-governor">public repository</a> with full history. Questions: <a href="mailto:prathameshkadam130404@gmail.com">prathameshkadam130404@gmail.com</a> or open a GitHub issue.</p>
+
+<footer>
+  <a href="./">← Governor documentation</a> · MIT licensed · <a href="https://github.com/prathameshkadam130404/claude-governor">GitHub</a>
+</footer>
+
+</div>
+</body>
+</html>
