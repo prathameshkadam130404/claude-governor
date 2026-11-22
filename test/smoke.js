@@ -122,13 +122,35 @@ function statuslineInput(ctxPct, fhPct, sdPct) {
   };
 }
 
+console.log('0b. Analytics quota availability (analytics.js)');
+const histFile = path.join(govDir, 'history.jsonl');
+for (const [name, samples, expectedPeaks] of [
+  ['empty history', [], '5h unavailable, 7d unavailable'],
+  ['missing readings', [{ fh: null, sd: null }, {}], '5h unavailable, 7d unavailable'],
+  ['single measured 5h zero', [{ fh: 0 }], '5h 0%, 7d unavailable'],
+  ['measured weekly zero', [{ sd: 0 }, {}], '5h unavailable, 7d 0%'],
+  ['two measured windows', [{ fh: 42, sd: 3 }, { fh: 17, sd: 9 }], '5h 42%, 7d 9%'],
+]) {
+  fs.writeFileSync(histFile, samples.map((sample, i) => JSON.stringify({ t: T + i, ...sample })).join('\n'));
+  const report = run('analytics.js', {});
+  const peaks = report.split('\n').find((line) => line.trimStart().startsWith('peaks'));
+  check('analytics peaks with ' + name, peaks === '  peaks       : ' + expectedPeaks, peaks);
+  if (name === 'missing readings') {
+    check('analytics marks missing current weekly usage unavailable', report.includes('weekly usage  : unavailable'));
+    check(
+      'analytics marks missing 5h reset and burn data unavailable',
+      report.includes('  5h resets   : unavailable') && report.includes('  current burn: unavailable')
+    );
+  }
+}
+fs.unlinkSync(histFile);
+
 console.log('1. Collector (statusline.js)');
 const out1 = run('statusline.js', statuslineInput(12, 34, 61));
 check('renders a statusline', out1.includes('CRUISE') && out1.includes('ctx 12%'), out1);
 const stateFile = path.join(FAKE_HOME, '.claude', 'governor', 'state', SID.replace(/-/g, '-') + '.json');
 const stateDir = path.join(FAKE_HOME, '.claude', 'governor', 'state');
 check('writes state file', fs.existsSync(stateDir) && fs.readdirSync(stateDir).length === 1);
-const histFile = path.join(FAKE_HOME, '.claude', 'governor', 'history.jsonl');
 check('appends history', fs.existsSync(histFile));
 
 console.log('2. Injector — CRUISE stays silent');
