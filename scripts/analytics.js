@@ -56,41 +56,56 @@ function main() {
 
   // ---- quota history: burn behavior and observed resets ----
   const hist = c.readHistory(14 * 24 * 60);
-  if (hist.length >= 2) {
+  let peakFh = null;
+  let peakSd = null;
+  let prevFh = null;
+  let fhReadings = 0;
+  let resets = 0;
+  for (const sample of hist) {
+    if (Number.isFinite(sample.fh)) {
+      fhReadings++;
+      if (prevFh !== null && sample.fh < prevFh - 5) resets++;
+      prevFh = sample.fh;
+      if (peakFh === null || sample.fh > peakFh) peakFh = sample.fh;
+    }
+    if (Number.isFinite(sample.sd) && (peakSd === null || sample.sd > peakSd)) {
+      peakSd = sample.sd;
+    }
+  }
+  if (hist.length) {
     const spanH = (hist[hist.length - 1].t - hist[0].t) / 3_600_000;
-    let resets = 0, peakFh = 0, peakSd = 0, prev = null;
-    for (const s of hist) {
-      if (typeof s.fh === 'number') {
-        if (prev !== null && s.fh < prev - 5) resets++;
-        prev = s.fh;
-        if (s.fh > peakFh) peakFh = s.fh;
-      }
-      if (typeof s.sd === 'number' && s.sd > peakSd) peakSd = s.sd;
-    }
-    console.log('quota history : ' + hist.length + ' samples over ' + spanH.toFixed(1) + 'h');
-    console.log('  peaks       : 5h ' + peakFh + '%, 7d ' + peakSd + '%');
-    console.log('  5h resets   : ' + resets + ' observed in the retained window');
-    const burn = c.burnRate(hist, 'fh', cfg);
-    if (burn) {
-      const view = c.freshestState(sessionId);
-      const pct = view.fiveHour ? view.fiveHour.used_percentage : null;
-      let s = '  current burn: ' + burn.toFixed(2) + '%/min';
-      if (typeof pct === 'number') s += ' → dry ~' + c.fmtMins(Math.round((100 - pct) / burn));
-      console.log(s);
-    } else {
-      console.log('  current burn: none detected (flat or not enough evidence)');
-    }
+    const sampleLabel = hist.length === 1 ? ' sample over ' : ' samples over ';
+    console.log('quota history : ' + hist.length + sampleLabel + spanH.toFixed(1) + 'h');
+  } else {
+    console.log('quota history : no samples recorded');
+  }
+  const formatPeak = (pct) => pct === null ? 'unavailable' : pct + '%';
+  console.log('  peaks       : 5h ' + formatPeak(peakFh) + ', 7d ' + formatPeak(peakSd));
+  const resetSummary = fhReadings < 2 ? 'unavailable' : resets + ' observed in the retained window';
+  console.log('  5h resets   : ' + resetSummary);
+
+  const view = c.freshestState(sessionId);
+  const burn = fhReadings ? c.burnRate(hist, 'fh', cfg) : null;
+  if (burn) {
+    const pct = view.fiveHour?.used_percentage;
+    let summary = burn.toFixed(2) + '%/min';
+    if (Number.isFinite(pct)) summary += ' → dry ~' + c.fmtMins(Math.round((100 - pct) / burn));
+    console.log('  current burn: ' + summary);
+  } else {
+    const summary = fhReadings ? 'none detected (flat or not enough evidence)' : 'unavailable';
+    console.log('  current burn: ' + summary);
   }
 
   // ---- current 7d position ----
-  const view = c.freshestState(sessionId);
-  if (view.sevenDay && typeof view.sevenDay.used_percentage === 'number') {
+  if (Number.isFinite(view.sevenDay?.used_percentage)) {
     console.log(
       'weekly usage  : ' + Math.round(view.sevenDay.used_percentage) + '% of the 7d window' +
         (view.sevenDay.resets_at
           ? ', resets in ' + c.fmtMins(Math.max(0, Math.round((view.sevenDay.resets_at * 1000 - Date.now()) / 60_000)))
           : '')
     );
+  } else {
+    console.log('weekly usage  : unavailable');
   }
 
   // ---- current project: journal + preserved subagent work ----
